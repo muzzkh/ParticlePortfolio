@@ -40,6 +40,43 @@ body {
   touch-action: none;
   cursor: crosshair;
   outline: none;
+  transition: opacity 1.4s ease;
+}
+
+/* Until the first frame is drawn (body.ready), keep the canvas and the intro text
+   hidden so nothing pops in piece by piece; a faint line shows it is loading. */
+body:not(.ready) #scene {
+  opacity: 0;
+}
+body:not(.ready) .intro-inner {
+  opacity: 0;
+  animation: none;
+}
+#intro::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 90px;
+  height: 1px;
+  margin-left: -45px;
+  background: linear-gradient(90deg, transparent, var(--ink-dim), transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+  animation: loading 1.8s ease-in-out infinite;
+}
+body:not(.ready) #intro::after {
+  opacity: 1;
+}
+@keyframes loading {
+  0%,
+  100% {
+    transform: scaleX(0.25);
+  }
+  50% {
+    transform: scaleX(1);
+  }
 }
 
 kbd {
@@ -1169,7 +1206,8 @@ body.reading .panel {
 }
 @media (prefers-reduced-motion: reduce) {
   .intro-inner,
-  .ws-title {
+  .ws-title,
+  #intro::after {
     animation: none;
   }
 }

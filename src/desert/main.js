@@ -32,6 +32,7 @@ try {
     document.querySelector('.intro-actions').remove();
     document.querySelector('.intro-keys').remove();
     document.getElementById('introLinks').append(...contactLinks(resume));
+    document.body.classList.add('ready');
   }
   throw err;
 }
@@ -928,12 +929,18 @@ function updateWind(dt, t) {
 // ---------------------------------------------------------------------------
 // Resize & adaptive resolution
 // ---------------------------------------------------------------------------
+// Resizing the canvas wipes it. Done after a frame has been drawn, the browser shows
+// that empty canvas for a frame: a black flash. So size changes only ever happen at
+// the start of a frame, just before it is drawn.
+let resizePending = false;
 function onResize() {
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   post.setSize(window.innerWidth, window.innerHeight, pixelRatio);
 }
-window.addEventListener('resize', onResize);
+window.addEventListener('resize', () => {
+  resizePending = true;
+});
 
 const perf = { acc: 0, frames: 0, lastChange: 0 };
 function adaptResolution(dt, t) {
@@ -948,11 +955,11 @@ function adaptResolution(dt, t) {
   if (avg > 0.024 && pixelRatio > 0.75) {
     pixelRatio = Math.max(0.75, pixelRatio - 0.25);
     perf.lastChange = t;
-    onResize();
+    resizePending = true;
   } else if (avg < 0.0125 && pixelRatio < MAX_PR) {
     pixelRatio = Math.min(MAX_PR, pixelRatio + 0.25);
     perf.lastChange = t;
-    onResize();
+    resizePending = true;
   }
 }
 
@@ -975,8 +982,20 @@ let simTime = 0;
 const _proj = new THREE.Vector3();
 const _proj2 = new THREE.Vector3();
 
+// Reveal the page once the first frame is on the canvas and the fonts have arrived,
+// so the scene fades in under a settled intro instead of popping in piece by piece.
+let revealed = false;
+function reveal() {
+  const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
+  Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]).then(() => document.body.classList.add('ready'));
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
+  if (resizePending) {
+    resizePending = false;
+    onResize();
+  }
   const dt = Math.min(0.05, Math.max(0.0005, (now - last) / 1000));
   last = now;
   simTime += dt;
@@ -1055,6 +1074,10 @@ function frame(now) {
   _proj2.copy(cam.focus).project(camera);
   g.uWindDir.value.set(_proj.x - _proj2.x, _proj.y - _proj2.y).normalize();
   post.render(dt);
+  if (!revealed) {
+    revealed = true;
+    requestAnimationFrame(reveal);
+  }
 
   // ---- audio & HUD ----
   const wl = wormLevel();
@@ -1078,4 +1101,26 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // expose for debugging in the console
-window.arrakis = { scene, camera, renderer, player, worm, atmos, trails, terrain, particles, cam, post, rocks, waystones, codex, newWorld, setTimeOfDay, selectStone };
+window.arrakis = {
+  scene,
+  camera,
+  renderer,
+  player,
+  worm,
+  atmos,
+  trails,
+  terrain,
+  particles,
+  cam,
+  post,
+  rocks,
+  waystones,
+  codex,
+  newWorld,
+  setTimeOfDay,
+  selectStone,
+  setPixelRatio: (pr) => {
+    pixelRatio = pr;
+    resizePending = true;
+  },
+};

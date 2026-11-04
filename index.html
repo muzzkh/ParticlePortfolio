@@ -9,6 +9,14 @@
       content="Muzzamil Khan, Software Engineer. An interactive résumé: walk a procedurally generated desert and read each chapter from the waystones along the road."
     />
     <meta name="theme-color" content="#1a0f08" />
+    <meta name="color-scheme" content="dark" />
+    <!-- paint the desert's dark backdrop from the very first frame, before any stylesheet -->
+    <style>
+      html,
+      body {
+        background: #1a0f08;
+      }
+    </style>
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Muzzamil Khan — Software Engineer" />
     <meta property="og:description" content="An interactive résumé set in a procedurally generated desert. Walk the road and read the waystones." />
@@ -132,6 +140,12 @@
       </div>
     </noscript>
 
+    <!-- if the app never gets going, still show the intro after a few seconds -->
+    <script>
+      setTimeout(function () {
+        document.body.classList.add('ready');
+      }, 7000);
+    </script>
     <script type="module" src="./src/desert/main.js"></script>
   </body>
 </html>
