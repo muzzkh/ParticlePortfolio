@@ -53,7 +53,8 @@ src/
     editmode.js            # Placement mode, for /management
     manage/                # /management itself
     resume/content.js      # Points at src/data/site.json and this repo (kept across syncs)
-    …                      # terrain, sandworm, walker, ornithopter, arcade, atomics, audio
+    games/                 # The Worm Pit, Dune Run and Airfield, played in the desert
+    …                      # terrain, sandworm, walker, ornithopter, atomics, audio
 ```
 
 ## Updating the content
@@ -62,7 +63,8 @@ Use **/management** on the live site. Everything is there: waystones
 (experience, education, skills) and projects with their highlights, formatted
 details with images, cover images, links and 3D models (`.glb`); the profile,
 intro text, contact links and résumé PDF; and a placement mode where you drag
-stones and pads around the desert yourself. **Publish** makes one commit to
+stones, pads and the three games around the desert yourself (games can also be
+hidden). **Publish** makes one commit to
 `main` here (`src/data/site.json` plus any added files under `public/`), and the
 deploy workflow puts it live in a minute or two. Unpublished work is kept in the
 browser until then.

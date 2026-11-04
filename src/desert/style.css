@@ -1369,199 +1369,192 @@ body:not(.editing) .edit-label {
   cursor: pointer;
 }
 
-/* ------------------------------------------------------------------ arcade */
-.arcade {
+/* ------------------------------------------------------------------ games */
+/* site labels: the waystone label, in the games' colour, with a prompt when you're there */
+.wl.kind-game {
+  --k: #ffc46b;
+}
+.gl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--k);
+  box-shadow: 0 0 8px var(--k);
+}
+.gl-prompt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff3dc;
+}
+.gl-prompt:empty {
+  display: none;
+}
+.wl.kind-game.near .wl-title {
+  color: #fff;
+  text-shadow: 0 0 14px var(--k), 0 1px 8px rgba(30, 12, 2, 0.8);
+}
+.wl.kind-game.near .gl-prompt {
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 196, 107, 0.6);
+  border-radius: 999px;
+  background: rgba(40, 18, 4, 0.55);
+  animation: gl-pulse 1.6s ease-in-out infinite;
+}
+@keyframes gl-pulse {
+  50% {
+    border-color: rgba(255, 196, 107, 0.2);
+  }
+}
+
+/* while a game runs, most of the interface steps aside */
+body.gaming .codex,
+body.gaming .dossier,
+body.gaming .rhythm,
+body.gaming .keys,
+body.gaming .panel,
+body.gaming .brand,
+body.gaming #toast,
+body.gaming #wormsign {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.4s ease, visibility 0.4s;
+}
+.gamehud {
   position: fixed;
   inset: 0;
-  z-index: 8;
-  display: grid;
-  place-items: center;
-  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-  background: rgba(14, 7, 3, 0.7);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  z-index: 30;
+  pointer-events: none;
+  font-family: var(--ui);
+  color: var(--ink);
+  text-shadow: 0 1px 10px rgba(30, 12, 2, 0.85);
 }
-.arcade-frame {
-  display: grid;
-  gap: 12px;
-  width: min(860px, 100%);
-  max-height: 100%;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: rgba(24, 13, 6, 0.9);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
-  overflow: auto;
-}
-.arcade-bar {
+.gh-bar {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 14px;
+  padding: 7px 8px 7px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  white-space: nowrap;
 }
-.arcade-title {
+.gh-title {
   font-family: var(--display);
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.3em;
+  font-size: 10px;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--ink);
+  color: #ffc46b;
 }
-.arcade-score {
-  flex: 1;
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  color: var(--ink-dim);
+.gh-score {
+  font-size: 15px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.arcade-actions {
-  display: flex;
-  gap: 8px;
+.gh-score:empty {
+  display: none;
 }
-.arcade-actions button {
-  padding: 7px 12px;
+.gh-leave {
+  pointer-events: auto;
+  padding: 5px 12px;
   border: 1px solid var(--line);
-  border-radius: 9px;
-  background: rgba(255, 230, 200, 0.04);
+  border-radius: 999px;
+  background: rgba(255, 240, 220, 0.08);
   color: var(--ink);
-  font: 500 12px var(--ui);
-  letter-spacing: 0.06em;
+  font: 600 12px var(--ui);
+  letter-spacing: 0.08em;
   cursor: pointer;
 }
-.arcade-actions button:hover {
-  background: rgba(255, 220, 180, 0.12);
+.gh-leave:hover {
+  background: rgba(255, 240, 220, 0.18);
 }
-.arcade-actions .arcade-x {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  padding: 0;
-  border-radius: 50%;
+.gh-center {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.35s ease;
 }
-.arcade-x svg {
-  width: 13px;
-  height: 13px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
+.gh-center.on {
+  opacity: 1;
 }
-.arcade-menu {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-.arcade-card {
-  display: grid;
-  gap: 8px;
-  align-content: start;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(255, 230, 200, 0.04);
-  color: var(--ink);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
-}
-.arcade-card:hover,
-.arcade-card:focus-visible {
-  background: rgba(255, 190, 120, 0.1);
-  border-color: rgba(255, 200, 140, 0.55);
-  outline: none;
-}
-.ac-name {
+.gh-msg {
   font-family: var(--serif);
   font-style: italic;
-  font-size: 24px;
+  font-size: clamp(30px, 6vw, 46px);
   line-height: 1.1;
+  color: #fff3dc;
 }
-.ac-blurb {
-  font-size: 13.5px;
-  line-height: 1.5;
+.gh-sub {
+  margin-top: 8px;
+  font-size: 15px;
   color: var(--ink-dim);
 }
-.ac-best {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--spice);
+.gh-hint {
+  position: absolute;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  text-align: center;
 }
-.arcade-stage {
-  display: grid;
-  gap: 10px;
+body.gaming .wl:not(.kind-game) {
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
-#arcadeCanvas {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  border-radius: 10px;
-  background: #2a1a10;
-  touch-action: none;
-  outline: none;
+/* with touch buttons, the hint sits above them */
+.gamehud:has(.gh-btn) .gh-hint {
+  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 112px);
 }
-.arcade-touch {
+.gh-pad {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 26px);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 max(16px, env(safe-area-inset-left));
+}
+.gh-pad:empty {
   display: none;
-  gap: 10px;
-  justify-content: center;
 }
-.pad {
-  min-width: 64px;
-  padding: 14px 16px;
+.gh-btn {
+  pointer-events: auto;
+  width: 74px;
+  height: 74px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 230, 200, 0.06);
+  border-radius: 50%;
+  background: rgba(28, 14, 6, 0.42);
   color: var(--ink);
-  font: 600 16px var(--ui);
+  font-size: 24px;
   touch-action: none;
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
-.arcade-touch.dpad {
-  grid-template-columns: repeat(3, 64px);
-  grid-template-areas: '. up .' 'left down right';
+.gh-btn.wide {
+  flex: 0 1 140px;
+  border-radius: 40px;
 }
-.arcade-touch.dpad .pad-up {
-  grid-area: up;
-}
-.arcade-touch.dpad .pad-left {
-  grid-area: left;
-}
-.arcade-touch.dpad .pad-down {
-  grid-area: down;
-}
-.arcade-touch.dpad .pad-right {
-  grid-area: right;
-}
-.arcade-touch.runner .pad-action {
-  margin-left: auto;
-  min-width: 110px;
-}
-.arcade-touch.hold .pad-action {
-  width: 100%;
-}
-@media (pointer: coarse) {
-  .arcade-touch {
-    display: flex;
-  }
-  .arcade-touch.dpad {
-    display: grid;
-  }
-}
-.arcade-help {
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  color: var(--ink-faint);
-}
-
-@media (max-height: 720px) and (min-width: 761px) {
-  .keys {
-    display: none;
-  }
-  .codex {
-    max-height: calc(100vh - var(--codex-top) - 110px);
-  }
+.gh-btn.down {
+  background: rgba(255, 196, 107, 0.3);
+  border-color: rgba(255, 196, 107, 0.7);
 }
 
 /* ------------------------------------------------------------------ small screens */
@@ -1628,22 +1621,6 @@ body:not(.editing) .edit-label {
     padding: 13px 22px;
     padding-left: calc(22px + 0.3em);
     letter-spacing: 0.3em;
-  }
-  .arcade {
-    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-  }
-  .arcade-frame {
-    padding: 12px;
-    gap: 10px;
-  }
-  .arcade-menu {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .arcade-score {
-    display: none;
-  }
-  .arcade-stage:not([hidden]) ~ .arcade-help {
-    display: none;
   }
   /* phones: the controls fold into one row along the bottom so the desert gets the middle */
   .panel {

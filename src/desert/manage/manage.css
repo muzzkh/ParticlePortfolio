@@ -563,6 +563,11 @@ select.i-input {
   border-color: var(--teal);
   border-radius: 2px;
 }
+.s-glyph.g-game {
+  border-color: #ffc46b;
+  border-radius: 50%;
+  border-style: dotted;
+}
 .s-glyph.g-triangle {
   width: 0;
   height: 0;
@@ -730,6 +735,9 @@ select.i-input {
 }
 .i-head.kind-project .i-kicker {
   color: var(--teal);
+}
+.i-head.kind-game .i-kicker {
+  color: #ffc46b;
 }
 .i-head h2 {
   margin: 4px 0 0;

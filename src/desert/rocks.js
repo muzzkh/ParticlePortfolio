@@ -85,6 +85,16 @@ export class RockField {
     this.pebbleMat = new THREE.MeshStandardMaterial({ color: '#4a2e22', flatShading: true, roughness: 0.9 });
     this.pebbleGeo = new THREE.DodecahedronGeometry(1, 0);
     this.lastKey = '';
+    this.exclude = null; // (x, z, r) => true where no rock may stand
+    this.lastPos = null;
+  }
+
+  // keep rocks off some ground (the games' tracks); rebuilds what's around
+  setExclusion(fn) {
+    this.exclude = fn;
+    const p = this.lastPos;
+    this.reset();
+    if (p) this.update(p.x, p.z);
   }
 
   reset() {
@@ -103,6 +113,7 @@ export class RockField {
   }
 
   update(x, z) {
+    this.lastPos = { x, z };
     const cx = Math.floor(x / CELL);
     const cz = Math.floor(z / CELL);
     const key = `${cx},${cz}`;
@@ -152,6 +163,11 @@ export class RockField {
       const sz = s * (0.8 + rng() * 0.6);
       const sy = s * (i === 0 && big ? 0.9 + rng() * 0.7 : 0.45 + rng() * 0.6);
       const geo = makeRockGeometry(rng, sx, sy, sz, 3 + Math.floor(rng() * 4));
+      // built either way, so leaving one out doesn't reshuffle the rest of the cell
+      if (this.exclude && this.exclude(rx, rz, Math.max(sx, sz))) {
+        geo.dispose();
+        continue;
+      }
       const mesh = new THREE.Mesh(geo, this.material);
       // sink the base into the sand around it
       let minH = Infinity;
@@ -188,6 +204,7 @@ export class RockField {
       e.set(rng() * 3, rng() * 3, rng() * 3);
       q.setFromEuler(e);
       sc.set(s * (0.8 + rng() * 0.6), s * (0.5 + rng() * 0.4), s * (0.8 + rng() * 0.6));
+      if (this.exclude && this.exclude(x, z, s)) sc.setScalar(0);
       m.compose(p, q, sc);
       inst.setMatrixAt(i, m);
     }

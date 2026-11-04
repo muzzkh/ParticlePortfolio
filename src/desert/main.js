@@ -16,7 +16,7 @@ import { prepareEntries } from './resume/normalize.js';
 import initialSite from './resume/content.js';
 import { setAssetOverrides } from './assets.js';
 import { createEditMode } from './editmode.js';
-import { Arcade } from './arcade/arcade.js';
+import { GameGrounds } from './games/grounds.js';
 import { Atomics, LaunchKey, strikeTargets } from './atomics.js';
 import { LaunchPad } from './launchpad.js';
 
@@ -170,7 +170,7 @@ const ui = new UI({
   storm: () => toggleStorm(),
   seed: () => newWorld(),
   sound: () => toggleSound(),
-  arcade: () => arcade.show(),
+  arcade: () => goToGames(),
   atomics: () => launchpad.show(),
 });
 
@@ -205,7 +205,8 @@ function applyIntro() {
     profile.intro ||
     `${NUMBER_WORDS[stones] ?? stones} waystones stand in the deep desert, one for every chapter of the road so far.` +
       (pads ? ` The other way, ${pads > 1 ? 'landing pads hold' : 'a landing pad holds'} what I'm building now.` : '') +
-      ' Walk out and read them.';
+      ' Walk out and read them.' +
+      (['worm', 'run', 'fly'].some((id) => !(site.games && site.games[id] && site.games[id].hidden)) ? ' Off to one side, there are games to play.' : '');
   document.getElementById('introLinks').replaceChildren(...contactLinks({ profile, site: site.site || {} }));
 }
 applyIntro();
@@ -320,7 +321,7 @@ function updateWaystones(dt, t, vr) {
     particles,
     tint: atmos.litTint,
   });
-  audio.thopter(waystones.thrum);
+  audio.thopter(Math.max(waystones.thrum, games.thrum));
   const s = near.stone;
   const id = entered && s && near.rel < 0 ? s.entry.id : null;
   if (id !== nearId) {
@@ -365,8 +366,17 @@ function layoutRoad(x, z) {
   const u = -0.89;
   const ux = Math.cos(START_YAW) * r - Math.sin(START_YAW) * u;
   const uz = -Math.sin(START_YAW) * r - Math.cos(START_YAW) * u;
-  waystones.layout(x, z, Math.atan2(uz, ux), (px, pz, m) => rocks.nearRock(px, pz, m));
+  const heading = Math.atan2(uz, ux);
+  // the games go off to the right; no rocks on their tracks, no stones on their sites
+  games.layout(x, z, heading, site.games);
+  const key = JSON.stringify([x, z, heading, site.games || null, seedValue]);
+  if (key !== gamesLayoutKey) {
+    gamesLayoutKey = key;
+    rocks.setExclusion((px, pz, rr) => games.corridor(px, pz, rr));
+  }
+  waystones.layout(x, z, heading, (px, pz, m) => rocks.nearRock(px, pz, m) || games.keepsClear(px, pz, m));
 }
+let gamesLayoutKey = '';
 
 const _anchor = new THREE.Vector3();
 const _base = new THREE.Vector3();
@@ -451,6 +461,7 @@ let transitioning = false;
 function newWorld(seed) {
   if (transitioning) return;
   transitioning = true;
+  if (games.active) games.stop(true);
   ui.fade(true);
   setTimeout(() => {
     applySeed(seed ?? Math.floor(Math.random() * 0xffffffff));
@@ -486,10 +497,12 @@ function newWorld(seed) {
 // ---------------------------------------------------------------------------
 // Camera rig: diagonal orthographic view that follows the walker
 // ---------------------------------------------------------------------------
+const PITCH = THREE.MathUtils.degToRad(37);
 const cam = {
   yaw: START_YAW,
   yawTarget: START_YAW,
-  pitch: THREE.MathUtils.degToRad(37),
+  pitch: PITCH,
+  pitchTarget: PITCH, // the games tilt the view
   height: 30,
   heightTarget: 30,
   focus: new THREE.Vector3(),
@@ -509,15 +522,25 @@ function viewRadius(h) {
 }
 
 function updateCamera(dt, t) {
+  // a game in progress frames its own view
+  const gv = games.view(window.innerWidth / window.innerHeight);
+  if (gv) {
+    if (gv.yaw !== null && gv.yaw !== undefined) {
+      const d = ((((gv.yaw - cam.yaw + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
+      cam.yawTarget = cam.yaw + d;
+    }
+    cam.pitchTarget = gv.pitch;
+  }
+  cam.pitch += (cam.pitchTarget - cam.pitch) * (1 - Math.exp(-dt * 3));
   let dy = cam.yawTarget - cam.yaw;
-  cam.yaw += dy * (1 - Math.exp(-dt * 5));
+  cam.yaw += dy * (1 - Math.exp(-dt * (gv ? 3 : 5)));
 
   // cinematic framing when the worm is near
   let wantCine = 0;
   let wx = 0;
   let wz = 0;
   let wy = 0;
-  if (worm.active && worm.state !== 'leave') {
+  if (worm.active && worm.state !== 'leave' && !gv) {
     if (worm.state === 'breach' && worm.breachPoint) {
       wx = worm.breachPoint.x + worm.breachDir.x * 7;
       wz = worm.breachPoint.z + worm.breachDir.z * 7;
@@ -535,8 +558,9 @@ function updateCamera(dt, t) {
 
   const lead = 0.45;
   if (editor) _focusTarget.copy(editor.focus);
+  else if (gv) _focusTarget.copy(gv.focus);
   else _focusTarget.set(player.pos.x + player.vel.x * lead, player.bodyY + 0.2, player.pos.z + player.vel.z * lead);
-  let h = cam.heightTarget;
+  let h = gv ? gv.height : cam.heightTarget;
   if (cam.cine > 0.001) {
     const k = 0.5 * cam.cine;
     _focusTarget.x += (wx - _focusTarget.x) * k;
@@ -600,6 +624,17 @@ window.addEventListener('keydown', (e) => {
     enterDesert();
     return;
   }
+  // a game in progress takes the keys (sound and hide-the-interface still work)
+  if (games.active) {
+    if (games.key(e, true)) e.preventDefault();
+    else if (!e.repeat && e.code === 'KeyM') toggleSound();
+    else if (!e.repeat && e.code === 'KeyH') ui.toggleHidden();
+    return;
+  }
+  if ((e.code === 'Space' || e.code === 'Enter') && !e.repeat && games.tryStart()) {
+    e.preventDefault();
+    return;
+  }
   keys.add(e.code);
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.repeat || !entered) return;
@@ -617,7 +652,7 @@ window.addEventListener('keydown', (e) => {
       newWorld();
       break;
     case 'KeyP':
-      arcade.show();
+      goToGames();
       break;
     case 'KeyM':
       toggleSound();
@@ -653,7 +688,10 @@ window.addEventListener('keydown', (e) => {
       break;
   }
 });
-window.addEventListener('keyup', (e) => keys.delete(e.code));
+window.addEventListener('keyup', (e) => {
+  keys.delete(e.code);
+  if (games.active) games.key(e, false);
+});
 window.addEventListener('blur', () => {
   keys.clear();
   pointerHeld = false;
@@ -711,6 +749,10 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   audio.resume();
   canvas.setPointerCapture(e.pointerId);
+  if (games.active) {
+    games.pointer('down', e, pickGround(e.clientX, e.clientY));
+    return;
+  }
   pointerHeld = true;
   const now = performance.now();
   clickRun = now - lastClick < 320;
@@ -718,10 +760,15 @@ canvas.addEventListener('pointerdown', (e) => {
   setClickTarget(e);
 });
 canvas.addEventListener('pointermove', (e) => {
+  if (games.active) {
+    if (e.buttons) games.pointer('move', e, pickGround(e.clientX, e.clientY));
+    return;
+  }
   if (pointerHeld) setClickTarget(e);
 });
-const endPointer = () => {
+const endPointer = (e) => {
   pointerHeld = false;
+  if (games.active) games.pointer('up', e, null);
 };
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
@@ -729,7 +776,7 @@ canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
-    if (EDIT) return; // the editor zooms further out
+    if (EDIT || games.active) return; // the editor zooms further out; games set their own view
     cam.heightTarget = THREE.MathUtils.clamp(cam.heightTarget * Math.exp(e.deltaY * 0.0012), 9, 46);
   },
   { passive: false },
@@ -737,6 +784,7 @@ canvas.addEventListener(
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 const input = { x: 0, z: 0, run: false };
+const HOLD = { x: 0, z: 0, run: false };
 function readInput(t) {
   let sx = 0;
   let sy = 0;
@@ -807,20 +855,69 @@ player.onLift = (s) => {
 // ---------------------------------------------------------------------------
 // Arcade and atomics
 // ---------------------------------------------------------------------------
-// The arcade covers the screen and pauses the desert while it's open.
-let paused = false;
-const arcade = new Arcade({
-  onOpen: () => {
-    paused = true;
+// The games are places in the desert (src/games/): walk onto a site's ring and play.
+const games = new GameGrounds({
+  scene,
+  particles,
+  trails,
+  audio,
+  tint: () => atmos.litTint,
+  rockMaterial: rocks.material,
+  player,
+  labelLayer: document.getElementById('labels'),
+  teleport: (x, z, yaw, fade) => {
+    const go = () => {
+      player.spawn(x, z, yaw);
+      clickTarget = null;
+      travel = null;
+      cam.focus.set(x, player.pos.y + 0.9, z);
+    };
+    if (!fade) return go();
+    ui.fade(true);
+    setTimeout(() => {
+      go();
+      setTimeout(() => ui.fade(false), 120);
+    }, 500);
+  },
+  travel: (x, z) => {
+    walkTo(x, z, Math.hypot(x - player.pos.x, z - player.pos.z) > 9);
+  },
+  onStart: () => {
+    closeDossier();
+    clickTarget = null;
+    travel = null;
     keys.clear();
     pointerHeld = false;
+    gameCam = { yaw: cam.yawTarget, height: cam.heightTarget };
+    document.body.classList.add('gaming');
   },
-  onClose: () => {
-    paused = false;
+  onEnd: () => {
+    document.body.classList.remove('gaming');
+    player.root.visible = true;
+    player.speedMul = 1;
+    cam.pitchTarget = PITCH;
+    if (gameCam) {
+      cam.yawTarget = gameCam.yaw;
+      cam.heightTarget = gameCam.height;
+    }
+    gameCam = null;
     canvas.focus();
   },
-  sfx: (name) => audio.blip(name),
 });
+let gameCam = null;
+
+// P and the Games button: head for the games, one site after another
+function goToGames() {
+  if (!entered) enterDesert();
+  if (games.active) return;
+  const s = games.next(player.pos.x, player.pos.z);
+  if (!s) return;
+  const meta = games.meta(s);
+  const d = Math.hypot(s.startPoint.x - player.pos.x, s.startPoint.z - player.pos.z);
+  if (d < 1.2) return void games.start(s);
+  walkTo(s.startPoint.x, s.startPoint.z, d > 9);
+  ui.toast(`Heading for the ${meta.title}. Step onto the ring and press Space${games.touchMode ? ' (or tap the label)' : ''}.`, 4);
+}
 
 const launchKey = new LaunchKey();
 let lastFlash = -10;
@@ -1194,11 +1291,6 @@ function frame(now) {
     resizePending = false;
     onResize();
   }
-  if (paused) {
-    // the arcade is open: hold the world still (the canvas keeps its last frame)
-    last = now;
-    return;
-  }
   const realDt = Math.min(0.25, Math.max(0.0005, (now - last) / 1000));
   const dt = Math.min(0.05, realDt);
   last = now;
@@ -1213,16 +1305,24 @@ function frame(now) {
   updateWind(dt, t);
 
   // ---- walker ----
-  const inp = readInput(t);
+  let inp = readInput(t);
+  const gw = games.walker();
+  if (gw) {
+    // a game drives the walker (the run), holds it still, or has it aboard (the flight)
+    inp = gw.input || HOLD;
+    player.root.visible = !gw.hidden;
+    player.rhythm = 0; // no worms while you play
+  }
   if (!EDIT)
     player.update(dt, inp, {
-    wind: wind.vel,
-    onRock,
-    collide: (pos, r, vel) => {
-      rocks.collide(pos, r, vel);
-      waystones.collide(pos, r, vel);
-    },
-  });
+      wind: wind.vel,
+      onRock,
+      collide: (pos, r, vel) => {
+        rocks.collide(pos, r, vel);
+        waystones.collide(pos, r, vel);
+        games.collide(pos, r, vel);
+      },
+    });
   // waystones stand on bedrock: as safe from the worm as any rock
   onRock = rocks.nearRock(player.pos.x, player.pos.z, 1.2) || waystones.nearStone(player.pos.x, player.pos.z, SAFE_MARGIN);
   if (!entered) player.rhythm = 0;
@@ -1241,8 +1341,9 @@ function frame(now) {
   atmos.update(cam.focus, vr, cam.dist);
   renderer.toneMappingExposure = atmos.exposure * (1 - storm * 0.08);
 
-  // ---- waystones ----
+  // ---- waystones and games ----
   updateWaystones(dt, t, vr);
+  games.update(dt, t, { px: player.pos.x, pz: player.pos.z, entered, camera });
 
 
   // ---- particles ----
@@ -1309,6 +1410,16 @@ requestAnimationFrame(frame);
 // ---------------------------------------------------------------------------
 // Edit mode: the placement editor that /management embeds
 // ---------------------------------------------------------------------------
+const editSites = {
+  get stones() {
+    return [...waystones.stones, ...games.editSites()];
+  },
+  byId: (id) => (String(id).startsWith('game:') ? games.editSite(id) : waystones.byId(id)),
+  siteOf: (o) => waystones.siteOf(o) || games.editSiteOf(o),
+  moveSite: (s, x, z) => (s.kind === 'game' ? games.moveSite(s, x, z) : waystones.moveSite(s, x, z)),
+  turnSite: (s, deg) => (s.kind === 'game' ? games.turnSite(s, deg) : waystones.turnSite(s, deg)),
+  siteRotation: (s) => (s.kind === 'game' ? games.siteRotation(s) : waystones.siteRotation(s)),
+};
 if (EDIT) {
   document.body.classList.add('editing');
   ui.enter(); // shows the world and labels; `entered` stays false, so no worms and no walker
@@ -1320,7 +1431,8 @@ if (EDIT) {
     cam,
     pickGround,
     startYaw: START_YAW,
-    getWaystones: () => waystones,
+    // stones, pads and the game sites, all placed the same way
+    getWaystones: () => editSites,
     getSpawn: () => spawnPoint,
     applyContent,
     setTimeOfDay,
@@ -1366,7 +1478,7 @@ window.arrakis = {
   newWorld,
   setTimeOfDay,
   selectStone,
-  arcade,
+  games,
   atomics,
   launchpad,
   setPixelRatio: (pr) => {

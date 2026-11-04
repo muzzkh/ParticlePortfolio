@@ -26,6 +26,7 @@ import { vaultInfo, saveToken, openVault, forgetVault } from './vault.js';
 import { saveDraft, loadDraft, clearDraft } from './drafts.js';
 import { prepareImage, fileSlug, shortId, humanSize, blobToBase64, MODEL_WARN, MODEL_MAX } from './media.js';
 import { renderInspector } from './inspector.js';
+import { GAMES, tidyGames } from './games.js';
 
 setAssetRoot('../');
 
@@ -118,6 +119,23 @@ function diffSites(a, b) {
   if (!same(a.profile, b.profile)) out.push({ area: 'profile', text: 'Profile and intro', short: 'edit profile', revert: (s) => (s.profile = clone(a.profile || {})) });
   if (!same(a.site, b.site)) out.push({ area: 'site', text: 'Site settings (résumé PDF)', short: 'update site settings', revert: (s) => (s.site = clone(a.site || {})) });
   if (!same(a.world, b.world)) out.push({ area: 'world', text: 'World (seed and time of day)', short: 'update world', revert: (s) => (s.world = clone(a.world || {})) });
+  const ga = tidyGames({ games: clone(a.games || {}) }).games;
+  const gb = tidyGames({ games: clone(b.games || {}) }).games;
+  for (const g of GAMES) {
+    if (same(ga && ga[g.id], gb && gb[g.id])) continue;
+    out.push({
+      area: 'game',
+      id: `game:${g.id}`,
+      text: `${g.title} (placement or visibility)`,
+      short: `update the ${g.title}`,
+      revert: (s) => {
+        s.games ||= {};
+        if (ga && ga[g.id]) s.games[g.id] = clone(ga[g.id]);
+        else delete s.games[g.id];
+        tidyGames(s);
+      },
+    });
+  }
   const am = new Map(a.entries.map((e, i) => [e.id, { e, i }]));
   const bm = new Map(b.entries.map((e) => [e.id, e]));
   for (const e of b.entries) {
@@ -203,7 +221,7 @@ function cleanSite(src) {
     if (Array.isArray(e.groups)) for (const g of e.groups) g.items = (g.items || []).filter(text);
   }
   if (s.profile && Array.isArray(s.profile.links)) s.profile.links = s.profile.links.filter((l) => l && text(l.href));
-  return s;
+  return tidyGames(s);
 }
 
 function validate(site) {
@@ -591,16 +609,22 @@ function attachWorld(api, win) {
   world = api;
   for (const ev of ['pointerdown', 'keydown', 'wheel']) win.addEventListener(ev, touch, { capture: true, passive: true });
   api.on('select', (id) => {
-    if (id) setSel({ type: 'entry', id }, { fromWorld: true });
-    else if (sel.type === 'entry') setSel({ type: 'none' }, { fromWorld: true });
+    if (id && id.startsWith('game:')) setSel({ type: 'game', id: id.slice(5) }, { fromWorld: true });
+    else if (id) setSel({ type: 'entry', id }, { fromWorld: true });
+    else if (sel.type === 'entry' || sel.type === 'game') setSel({ type: 'none' }, { fromWorld: true });
   });
   api.on('place', (id, p) => {
     store.change((s) => {
+      if (id.startsWith('game:')) {
+        ((s.games ||= {})[id.slice(5)] ||= {}).place = p;
+        return;
+      }
       const e = s.entries.find((x) => x.id === id);
       if (e) e.place = p;
     }, `place:${id}`);
   });
   api.on('scale', (id, f) => {
+    if (id.startsWith('game:')) return; // games keep their size
     store.change((s) => {
       const e = s.entries.find((x) => x.id === id);
       if (!e) return;
@@ -613,11 +637,12 @@ function attachWorld(api, win) {
       }
     }, `scale:${id}`);
   });
-  api.on('delete', (id) => removeEntry(id));
+  api.on('delete', (id) => (id.startsWith('game:') ? hideGame(id.slice(5)) : removeEntry(id)));
   api.on('card', (on) => syncCard(on));
   api.on('shortcut', (cmd) => runShortcut(cmd));
   pushWorldNow();
   if (sel.type === 'entry') world.select(sel.id);
+  if (sel.type === 'game') world.select(`game:${sel.id}`);
   ui.worldLoading.remove();
 }
 
@@ -655,7 +680,7 @@ function setSel(next, { fromWorld = false } = {}) {
   renderSide();
   if (!fromWorld && world) {
     pushWorldNow();
-    world.select(next.type === 'entry' ? next.id : null);
+    world.select(next.type === 'entry' ? next.id : next.type === 'game' ? `game:${next.id}` : null);
   }
   if (!fromWorld && narrow() && next.type !== 'none') showPane('edit');
 }
@@ -895,10 +920,50 @@ function renderSide() {
       h('header', {}, h('div', {}, h('h2', { text: title }), h('small', { text: sub })), add),
       list.length ? h('ol', { class: 's-list' }, list.map(item)) : h('p', { class: 's-empty', text: q ? 'Nothing matches.' : empty }),
     );
+  const conf = store.site.games || {};
+  const games = GAMES.filter((g) => !q || [g.title, g.kind, 'game'].some((v) => v.toLowerCase().includes(q)));
+  const gameItem = (g) => {
+    const c = conf[g.id] || {};
+    return h(
+      'li',
+      { class: `s-item${sel.type === 'game' && sel.id === g.id ? ' on' : ''}${c.hidden ? ' is-hidden' : ''}`, dataset: { id: `game:${g.id}` } },
+      h('span', { class: 's-grip', 'aria-hidden': 'true' }),
+      h(
+        'button',
+        { type: 'button', class: 's-pick', onclick: () => setSel({ type: 'game', id: g.id }) },
+        h('span', { class: 's-glyph g-game', 'aria-hidden': 'true' }),
+        h('span', { class: 's-text' }, h('b', { text: g.title }), h('small', { text: `Game · ${g.kind}` })),
+        h(
+          'span',
+          { class: 's-badges' },
+          c.place ? h('span', { class: 's-badge', title: 'Placed by hand', text: '⌖' }) : null,
+          c.hidden ? h('span', { class: 's-badge', title: 'Hidden from visitors', text: 'hidden' }) : null,
+          changed.has(`game:${g.id}`) ? h('span', { class: 's-dot', title: 'Unpublished changes' }) : null,
+        ),
+      ),
+    );
+  };
   ui.lists.replaceChildren(
     group('Waystones', 'Along the road, first to last', stones, addStone, 'No waystones yet.'),
     group('Projects', 'On the project path, first to last', pads, addPad, 'No projects yet.'),
+    h(
+      'section',
+      { class: 's-group' },
+      h('header', {}, h('div', {}, h('h2', { text: 'Games' }), h('small', { text: 'Played right there in the desert' }))),
+      games.length ? h('ol', { class: 's-list' }, games.map(gameItem)) : h('p', { class: 's-empty', text: 'Nothing matches.' }),
+    ),
   );
+}
+
+async function hideGame(id) {
+  const g = GAMES.find((x) => x.id === id);
+  if (!g) return;
+  if (!(await confirmDialog(`Hide the ${g.title}?`, 'Visitors won’t see it. You can show it again from its details.', 'Hide it'))) return;
+  store.change((s) => {
+    ((s.games ||= {})[id] ||= {}).hidden = true;
+  }, 'struct:game-hide');
+  store.seal();
+  setSel({ type: 'game', id });
 }
 
 // ---------------------------------------------------------------------------
@@ -1253,7 +1318,7 @@ function changeRows(changes, close) {
                 class: 'm-btn small',
                 onclick: () => {
                   close && close();
-                  setSel({ type: 'entry', id: c.id });
+                  setSel(c.id.startsWith('game:') ? { type: 'game', id: c.id.slice(5) } : { type: 'entry', id: c.id });
                 },
               },
               'Show',

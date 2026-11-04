@@ -72,10 +72,18 @@ export type Entry = {
   hidden?: boolean
 }
 
+// the three games in the desert: hide one, or place it by hand (rot turns the
+// way its course runs, in degrees from straight away from the start)
+export type GameSettings = {
+  hidden?: boolean
+  place?: { dx: number; dz: number; rot?: number }
+}
+
 export type SiteContent = {
   version: 1
   profile: Profile
   site: { pdf?: string }
   world: { seed?: number; time?: number }
+  games?: { worm?: GameSettings; run?: GameSettings; fly?: GameSettings }
   entries: Entry[]
 }

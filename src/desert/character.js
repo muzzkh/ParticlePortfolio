@@ -15,6 +15,7 @@ const STAND = ANKLE + LEG * 0.965;
 const WALK_SPEED = 1.9;
 const RUN_SPEED = 5.4;
 const FOOT_SINK = 0.035;
+const GRAVITY = 16;
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _d = new THREE.Vector3();
@@ -202,6 +203,10 @@ export class Fremen {
     this.stumble = 0;
     this.sandwalk = false;
     this.sw = { timer: 0, target: 1, mul: 1 };
+    this.speedMul = 1; // the games speed the walker up
+    this.air = 0; // height of a jump above the sand
+    this.vy = 0;
+    this.squash = 0; // a little crouch on landing
     this.armSwing = [0, 0];
     this.feet = [0, 1].map((i) => ({
       side: i === 0 ? 1 : -1,
@@ -241,9 +246,24 @@ export class Fremen {
       f.swinging = false;
     }
     this.bodyY = this.pos.y + STAND;
+    this.air = 0;
+    this.vy = 0;
+    this.squash = 0;
     this.cloak.initialized = false;
     this.rhythm = 0;
     this.stepIntervals.length = 0;
+  }
+
+  get airborne() {
+    return this.air > 0 || this.vy > 0;
+  }
+
+  // leap straight up (keeping the run's speed); false while already in the air
+  jump(v = 5.6) {
+    if (this.airborne) return false;
+    this.vy = v;
+    this.air = 1e-4;
+    return true;
   }
 
   applyImpulse(x, z, stumble = 0.8) {
@@ -267,7 +287,7 @@ export class Fremen {
       ix /= l;
       iz /= l;
     }
-    let maxSpeed = input.run ? RUN_SPEED : WALK_SPEED;
+    let maxSpeed = (input.run ? RUN_SPEED : WALK_SPEED) * this.speedMul;
     if (this.sandwalk) {
       const sw = this.sw;
       sw.timer -= dt;
@@ -276,7 +296,7 @@ export class Fremen {
         sw.target = Math.random() < 0.2 ? 0.12 : 0.45 + Math.random() * 0.8;
       }
       sw.mul += (sw.target - sw.mul) * (1 - Math.exp(-dt * 7));
-      maxSpeed = (input.run ? 3.4 : 1.9) * sw.mul;
+      maxSpeed = (input.run ? 3.4 : 1.9) * sw.mul * this.speedMul;
     }
     groundGradient(this.pos.x, this.pos.z, _g);
     const uphill = ix * _g.x + iz * _g.z;
@@ -304,6 +324,21 @@ export class Fremen {
     this.pos.z += this.vel.z * dt;
     if (env.collide) env.collide(this.pos, 0.34, this.vel);
     this.pos.y = groundHeight(this.pos.x, this.pos.z);
+
+    // a jump: up and down over the sand (pos stays on the ground; air is the height)
+    let landed = false;
+    if (this.airborne) {
+      this.vy -= GRAVITY * dt;
+      this.air += this.vy * dt;
+      if (this.air <= 0) {
+        this.air = 0;
+        this.vy = 0;
+        landed = true;
+        this.squash = 0.14;
+      }
+    }
+    const airborne = this.air > 0;
+    this.squash = Math.max(0, this.squash - dt * 0.6);
 
     const speed = Math.hypot(this.vel.x, this.vel.z);
     this.speed = speed;
@@ -334,7 +369,7 @@ export class Fremen {
     for (const f of feet) {
       const hx = this.pos.x + lx * f.side * lateral;
       const hz = this.pos.z + lz * f.side * lateral;
-      if (f.swinging) anySwing = true;
+      if (f.swinging && !airborne) anySwing = true;
       else if (Math.hypot(f.pos.x - hx, f.pos.z - hz) > 0.1) needSettle = true;
     }
     if (moving || anySwing || needSettle) this.phase = (this.phase + rate * dt) % 1;
@@ -345,6 +380,28 @@ export class Fremen {
       const inWindow = local < swingFrac;
       const hx = this.pos.x + lx * f.side * lateral;
       const hz = this.pos.z + lz * f.side * lateral;
+      if (airborne || landed) {
+        if (airborne) {
+          // tucked up under the body, one knee forward
+          const off = f.side > 0 ? 0.2 : -0.06;
+          f.swinging = false;
+          f.y = this.pos.y + this.air + 0.3 + (f.side > 0 ? 0.08 : 0);
+          f.pos.set(hx + dirX * off, f.y, hz + dirZ * off);
+          f.pitch = f.side > 0 ? -0.5 : 0.35;
+        } else {
+          // both feet come down together
+          f.swinging = false;
+          f.pos.set(hx + dirX * 0.08 * f.side, 0, hz + dirZ * 0.08 * f.side);
+          f.y = groundHeight(f.pos.x, f.pos.z) - FOOT_SINK;
+          f.pos.y = f.y;
+          f.pitch = 0;
+          if (this.onFootstep) this.onFootstep({ x: f.pos.x, y: f.y, z: f.pos.z, yaw: f.yaw, side: f.side, speed, run: 1, sliding: 0, dirX, dirZ });
+        }
+        f.yaw = lerpAngle(f.yaw, this.yaw, 1 - Math.exp(-dt * 14));
+        f.wasInWindow = inWindow;
+        f.lastLocal = local;
+        continue;
+      }
       if (f.swinging) {
         if (!inWindow || local < f.lastLocal) {
           // land
@@ -409,21 +466,22 @@ export class Fremen {
     const bob = -bobAmp * Math.cos(4 * Math.PI * psi);
     let hipMax = Infinity;
     for (const f of feet) {
-      if (f.swinging) continue;
+      if (f.swinging || airborne) continue;
       const dx = this.pos.x + lx * f.side * HIP_W - f.pos.x;
       const dz = this.pos.z + lz * f.side * HIP_W - f.pos.z;
       const reach = Math.sqrt(Math.max(0, (LEG * 0.985) ** 2 - dx * dx - dz * dz));
       hipMax = Math.min(hipMax, f.y + ANKLE + reach);
     }
     const breathe = Math.sin(this.time * 1.7) * 0.004;
-    let hipTarget = this.pos.y + STAND + bob - this.sliding * 0.12 + breathe - this.runBlend * 0.03;
+    let hipTarget = this.pos.y + STAND + bob - this.sliding * 0.12 + breathe - this.runBlend * 0.03 + this.air - this.squash;
     // legs may over-extend a little: the solver lifts the heel (toe-off) instead of crouching
     hipTarget = Math.min(hipTarget, hipMax + 0.09 + 0.07 * this.runBlend);
     hipTarget = Math.max(hipTarget, this.pos.y + 0.55);
-    this.bodyY += (hipTarget - this.bodyY) * (1 - Math.exp(-dt * 18));
+    if (airborne) this.bodyY = hipTarget;
+    else this.bodyY += (hipTarget - this.bodyY) * (1 - Math.exp(-dt * 18));
 
     const slopeAlong = speed > 0.1 ? (_g.x * this.vel.x + _g.z * this.vel.z) / speed : 0;
-    const leanTarget = speed * 0.028 + this.runBlend * 0.14 + clamp(slopeAlong * 0.25, -0.12, 0.2) - this.sliding * 0.15 + (this.stumble > 0 ? 0.25 : 0);
+    const leanTarget = speed * 0.028 + this.runBlend * 0.14 + clamp(slopeAlong * 0.25, -0.12, 0.2) - this.sliding * 0.15 + (this.stumble > 0 ? 0.25 : 0) + (airborne ? 0.12 : 0);
     this.lean += (leanTarget - this.lean) * (1 - Math.exp(-dt * 6));
     const sway = moving ? Math.sin(2 * Math.PI * psi) * (0.035 - 0.015 * this.runBlend) : 0;
     this.body.position.set(this.pos.x, this.bodyY, this.pos.z);

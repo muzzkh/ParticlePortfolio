@@ -12,6 +12,7 @@
 import { h, autosize, toast } from './dom.js';
 import { KINDS, yearSpan, slug } from '../resume/normalize.js';
 import { humanSize } from './media.js';
+import { GAMES, tidyGames } from './games.js';
 
 const KIND_OPTIONS = [
   ['experience', 'Experience (waystone)'],
@@ -944,11 +945,88 @@ function worldPanel(ctx) {
   ];
 }
 
+// a game's details: whether visitors see it, and where it stands
+function gamePanel(ctx, id) {
+  const g = GAMES.find((x) => x.id === id);
+  if (!g) return [h('div', { class: 'i-empty' }, 'No such game.')];
+  const conf = (ctx.store.site.games || {})[id] || {};
+  const G = (s) => ((s.games ||= {})[id] ||= {});
+  const k = (name) => `game:${id}:${name}`;
+  const struct = (fn, key) => {
+    ctx.change((s) => {
+      fn(s);
+      tidyGames(s);
+    }, `struct:${k(key)}`);
+    ctx.store.seal();
+    ctx.rerender();
+  };
+  const show = h('button', { type: 'button', class: 'm-btn small', onclick: () => ctx.world.select(`game:${id}`) }, 'Show in world');
+  const here = h(
+    'button',
+    {
+      type: 'button',
+      class: 'm-btn small',
+      title: 'Place it in the middle of the world view',
+      onclick: () => {
+        const c = ctx.world.viewCenter();
+        if (!c) return toast('The world view isn’t ready yet.', 'error');
+        struct((s) => (G(s).place = { dx: c.dx, dz: c.dz, rot: (G(s).place && G(s).place.rot) || 0 }), 'place');
+        ctx.world.select(`game:${id}`);
+      },
+    },
+    'Move to the view’s center',
+  );
+  const place = [];
+  if (conf.place) {
+    place.push(
+      hint('Placed by hand. Distances are in metres from where visitors start (x to the east, z to the south). Turn sets which way its course runs, in degrees from straight away from the start.'),
+      h(
+        'div',
+        { class: 'i-grid3' },
+        numberInput(ctx, { label: 'x', value: conf.place.dx, step: 0.5, key: k('px'), set: (s, v) => (G(s).place.dx = v), unit: 'm' }),
+        numberInput(ctx, { label: 'z', value: conf.place.dz, step: 0.5, key: k('pz'), set: (s, v) => (G(s).place.dz = v), unit: 'm' }),
+        numberInput(ctx, { label: 'Turn', value: conf.place.rot ?? 0, step: 5, key: k('pr'), set: (s, v) => (G(s).place.rot = v), unit: '°' }),
+      ),
+      h('div', { class: 'i-actions' }, h('button', { type: 'button', class: 'm-btn small', onclick: () => struct((s) => delete G(s).place, 'place') }, 'Back to its usual spot'), here, show),
+    );
+  } else {
+    place.push(
+      hint('Automatic: with the other games, off to the right of where visitors start. Drag it in the world view to place it by hand; [ and ] turn its course.'),
+      h(
+        'div',
+        { class: 'i-actions' },
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'm-btn small',
+            onclick: () => {
+              const p = ctx.world.placeOf(`game:${id}`);
+              if (!p) return toast(conf.hidden ? 'Show it first, then pin it.' : 'The world view isn’t ready yet.', 'error');
+              struct((s) => (G(s).place = p), 'place');
+            },
+          },
+          'Pin where it is now',
+        ),
+        here,
+        show,
+      ),
+    );
+  }
+  return [
+    h('header', { class: 'i-head kind-game' }, h('div', { class: 'i-kicker', text: `Game · ${g.kind}${conf.hidden ? ' · hidden' : ''}` }), h('h2', { text: g.title })),
+    section('About', hint(g.blurb), hint('Visitors walk onto its glowing ring and press Space (or tap its label) to play, right there in the desert. P and the Games button lead them to it. Best scores stay in their own browser.')),
+    section('On the site', toggle(ctx, { label: 'Show it to visitors', checked: !conf.hidden, key: k('hidden'), set: (s, v) => ((G(s).hidden = v ? undefined : true), tidyGames(s)) })),
+    section('Placement', ...place),
+  ];
+}
+
 export function renderInspector(root, sel, ctx) {
   const scrollTop = root.scrollTop;
   let kids;
   if (sel.type === 'profile') kids = profilePanel(ctx);
   else if (sel.type === 'world') kids = worldPanel(ctx);
+  else if (sel.type === 'game') kids = gamePanel(ctx, sel.id);
   else if (sel.type === 'entry') kids = entryPanel(ctx, sel.id);
   else kids = [h('div', { class: 'i-empty' }, h('p', { text: 'Pick an entry on the left, or click a stone or pad in the world.' }))];
   root.replaceChildren(...kids);

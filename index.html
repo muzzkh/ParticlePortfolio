@@ -94,7 +94,7 @@
           <button id="btnSandwalk" type="button" title="Walk without rhythm (C)"><span>Sandwalk</span><kbd>C</kbd></button>
           <button id="btnStorm" type="button" title="Summon a Coriolis storm (G)"><span>Storm</span><kbd>G</kbd></button>
           <button id="btnSeed" type="button" title="Generate a new erg (N)"><span>New erg</span><kbd>N</kbd></button>
-          <button id="btnArcade" type="button" title="Play mini games (P)"><span>Arcade</span><kbd>P</kbd></button>
+          <button id="btnArcade" type="button" title="Walk to the games: the Worm Pit, the Dune Run and the Airfield (P)"><span>Games</span><kbd>P</kbd></button>
           <button id="btnAtomics" type="button" title="Requires launch codes"><span>Atomics</span><kbd aria-hidden="true">☢</kbd></button>
           <button id="btnSound" type="button" title="Sound on/off (M)"><span>Sound</span><kbd>M</kbd></button>
         </div>
@@ -119,7 +119,7 @@
         <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · <kbd>Shift</kbd> run</div>
         <div><kbd>Click</kbd> walk to · <kbd>Dbl</kbd> run to</div>
         <div><kbd>R</kbd> résumé · <kbd>,</kbd><kbd>.</kbd> prev / next · <kbd>Esc</kbd> close</div>
-        <div><kbd>P</kbd> arcade</div>
+        <div><kbd>P</kbd> games · <kbd>Space</kbd> play on a ring</div>
         <div><kbd>Q</kbd><kbd>E</kbd> turn view · <kbd>Scroll</kbd> zoom</div>
         <div><kbd>H</kbd> hide interface</div>
       </footer>
@@ -147,29 +147,6 @@
 
     <div id="fade"></div>
     <div id="nukeflash" aria-hidden="true"></div>
-
-    <!-- Arcade -->
-    <div id="arcade" class="arcade" role="dialog" aria-modal="true" aria-labelledby="arcadeTitle" hidden>
-      <div class="arcade-frame">
-        <header class="arcade-bar">
-          <div class="arcade-title" id="arcadeTitle">Arcade</div>
-          <div class="arcade-score" id="arcadeScore"></div>
-          <div class="arcade-actions">
-            <button id="arcadeRestart" type="button" hidden>Restart</button>
-            <button id="arcadeBack" type="button" hidden>Games</button>
-            <button id="arcadeClose" class="arcade-x" type="button" aria-label="Close the arcade (Esc)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
-            </button>
-          </div>
-        </header>
-        <div class="arcade-menu" id="arcadeMenu"></div>
-        <div class="arcade-stage" id="arcadeStage" hidden>
-          <canvas id="arcadeCanvas" tabindex="0" aria-label="Game screen"></canvas>
-          <div class="arcade-touch" id="arcadeTouch"></div>
-        </div>
-        <footer class="arcade-help" id="arcadeHelp"></footer>
-      </div>
-    </div>
 
     <!-- Launch keypad -->
     <div id="launch" class="launch" role="dialog" aria-modal="true" aria-labelledby="launchTitle" hidden>
