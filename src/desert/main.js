@@ -942,23 +942,73 @@ window.addEventListener('resize', () => {
   resizePending = true;
 });
 
-const perf = { acc: 0, frames: 0, lastChange: 0 };
-function adaptResolution(dt, t) {
-  if (lockedPR) return;
-  perf.acc += dt;
+// Startup: the scene first renders hidden behind the loading screen (faded to the
+// page colour in the grade pass). Those frames settle the resolution, so the sharpness
+// never visibly steps once people can see the page; then the page is revealed.
+const startup = { frames: 0, elapsed: 0, acc: 0, n: 0, revealed: false, fadeFrom: -1 };
+post.grade.uniforms.uFadeColor.value.setRGB(0x1a / 255, 0x0f / 255, 0x08 / 255); // the page background
+function settleResolution(realDt) {
+  if (startup.revealed) return;
+  startup.frames++;
+  startup.elapsed += realDt;
+  // the first few frames compile shaders and say nothing about speed
+  if (startup.frames > 4 && !lockedPR) {
+    startup.acc += realDt;
+    startup.n++;
+    if (startup.acc >= 0.3 && startup.n >= 5) {
+      const avg = startup.acc / startup.n;
+      startup.acc = 0;
+      startup.n = 0;
+      let next = pixelRatio;
+      if (avg > 0.024 && pixelRatio > 0.75) next = Math.max(0.75, pixelRatio - 0.25);
+      else if (avg < 0.0125 && pixelRatio < MAX_PR) next = Math.min(MAX_PR, pixelRatio + 0.25);
+      if (next !== pixelRatio) {
+        pixelRatio = next;
+        resizePending = true;
+      } else {
+        reveal(); // a full window at this resolution with nothing to change
+        return;
+      }
+    }
+  }
+  if (startup.elapsed > 3 || (lockedPR && startup.frames > 4)) reveal();
+}
+function reveal() {
+  if (startup.revealed) return;
+  startup.revealed = true;
+  const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
+  Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]).then(() => document.body.classList.add('ready'));
+}
+// Fade the scene up from the page colour once the page is revealed (body.ready, which
+// the inline fallback timer in index.html can also set).
+function updateFade(now) {
+  const fade = post.grade.uniforms.uFade;
+  if (startup.fadeFrom < 0) {
+    if (!document.body.classList.contains('ready')) {
+      fade.value = 1;
+      return;
+    }
+    startup.fadeFrom = now;
+  }
+  const k = Math.min(1, (now - startup.fadeFrom) / 1400);
+  fade.value = 1 - k * k * (3 - 2 * k);
+}
+
+// Once the page is showing, only step the resolution down, and only when the device is
+// clearly struggling: every change is visible.
+const perf = { acc: 0, frames: 0, sinceChange: 0 };
+function adaptResolution(realDt) {
+  if (lockedPR || !startup.revealed) return;
+  perf.acc += realDt;
   perf.frames++;
-  if (perf.frames < 90) return;
+  perf.sinceChange += realDt;
+  if (perf.frames < 120) return;
   const avg = perf.acc / perf.frames;
   perf.acc = 0;
   perf.frames = 0;
-  if (t < 4 || t - perf.lastChange < 4) return;
-  if (avg > 0.024 && pixelRatio > 0.75) {
+  if (avg > 0.03 && pixelRatio > 0.75 && perf.sinceChange > 6) {
     pixelRatio = Math.max(0.75, pixelRatio - 0.25);
-    perf.lastChange = t;
-    resizePending = true;
-  } else if (avg < 0.0125 && pixelRatio < MAX_PR) {
-    pixelRatio = Math.min(MAX_PR, pixelRatio + 0.25);
-    perf.lastChange = t;
+    perf.sinceChange = 0;
     resizePending = true;
   }
 }
@@ -982,21 +1032,14 @@ let simTime = 0;
 const _proj = new THREE.Vector3();
 const _proj2 = new THREE.Vector3();
 
-// Reveal the page once the first frame is on the canvas and the fonts have arrived,
-// so the scene fades in under a settled intro instead of popping in piece by piece.
-let revealed = false;
-function reveal() {
-  const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
-  Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]).then(() => document.body.classList.add('ready'));
-}
-
 function frame(now) {
   requestAnimationFrame(frame);
   if (resizePending) {
     resizePending = false;
     onResize();
   }
-  const dt = Math.min(0.05, Math.max(0.0005, (now - last) / 1000));
+  const realDt = Math.min(0.25, Math.max(0.0005, (now - last) / 1000));
+  const dt = Math.min(0.05, realDt);
   last = now;
   simTime += dt;
   const t = simTime;
@@ -1073,11 +1116,8 @@ function frame(now) {
   _proj.set(WIND.x, 0, WIND.z).add(cam.focus).project(camera);
   _proj2.copy(cam.focus).project(camera);
   g.uWindDir.value.set(_proj.x - _proj2.x, _proj.y - _proj2.y).normalize();
+  updateFade(now);
   post.render(dt);
-  if (!revealed) {
-    revealed = true;
-    requestAnimationFrame(reveal);
-  }
 
   // ---- audio & HUD ----
   const wl = wormLevel();
@@ -1096,7 +1136,8 @@ function frame(now) {
   ui.update(dt, player.time, player.rhythm, player.regularity, player.sandwalk, wormInfo);
   ui.setTime(atmos.time);
   updateLabels();
-  adaptResolution(dt, t);
+  settleResolution(realDt);
+  adaptResolution(realDt);
 }
 requestAnimationFrame(frame);
 

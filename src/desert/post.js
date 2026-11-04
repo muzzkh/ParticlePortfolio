@@ -16,6 +16,7 @@ const GradeShader = {
     uWindDir: { value: new THREE.Vector2(0.8, -0.3) },
     uVignette: { value: 0.9 },
     uFade: { value: 0 },
+    uFadeColor: { value: new THREE.Color(0, 0, 0) },
     uShake: { value: 0 },
   },
   vertexShader: /* glsl */ `
@@ -35,6 +36,7 @@ const GradeShader = {
     uniform vec2 uWindDir;
     uniform float uVignette;
     uniform float uFade;
+    uniform vec3 uFadeColor;
     uniform float uShake;
     varying vec2 vUv;
 
@@ -97,7 +99,7 @@ const GradeShader = {
       // fine film grain
       float g = h21(vUv * uRes + fract(uTime * 13.7) * 100.0) - 0.5;
       col += g * 0.028;
-      col = mix(col, vec3(0.0), uFade);
+      col = mix(col, uFadeColor, uFade);
       gl_FragColor = vec4(col, 1.0);
     }
   `,
@@ -113,6 +115,10 @@ export function createPost(renderer, scene, camera) {
   // bloom only carries small highlights (glints, eyes, spice, the worm's throat): run it at quarter res
   const bloomSetSize = bloom.setSize.bind(bloom);
   bloom.setSize = (w, h) => bloomSetSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
+  // Ease highlights into the bloom instead of switching them on at the threshold:
+  // with the default hard edge, anything hovering near it (shimmering inscriptions,
+  // the bright bands drifting up the light columns, twinkling spice) pops on and off.
+  bloom.highPassUniforms.smoothWidth.value = 0.45;
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   const grade = new ShaderPass(GradeShader);

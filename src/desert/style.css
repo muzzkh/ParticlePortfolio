@@ -40,14 +40,11 @@ body {
   touch-action: none;
   cursor: crosshair;
   outline: none;
-  transition: opacity 1.4s ease;
 }
 
-/* Until the first frame is drawn (body.ready), keep the canvas and the intro text
-   hidden so nothing pops in piece by piece; a faint line shows it is loading. */
-body:not(.ready) #scene {
-  opacity: 0;
-}
+/* Until the scene is ready (body.ready) the intro text stays hidden so nothing pops in
+   piece by piece, and a faint line shows it is loading. The scene itself fades up from
+   the page colour inside WebGL (see updateFade in main.js), never with CSS. */
 body:not(.ready) .intro-inner {
   opacity: 0;
   animation: none;
@@ -480,12 +477,10 @@ input[type='range']::-moz-range-thumb {
   from {
     opacity: 0;
     transform: translateY(18px);
-    filter: blur(6px);
   }
   to {
     opacity: 1;
     transform: none;
-    filter: none;
   }
 }
 

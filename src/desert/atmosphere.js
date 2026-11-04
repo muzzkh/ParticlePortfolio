@@ -72,6 +72,7 @@ export class Atmosphere {
     this.litTint = new THREE.Color();
     this.ambientTint = new THREE.Color();
 
+    this.shadowExt = 0;
     this._basisR = new THREE.Vector3();
     this._basisU = new THREE.Vector3();
     this.setTime(this.time);
@@ -153,7 +154,12 @@ export class Atmosphere {
   // Fit the shadow frustum around the view and snap it to shadow texels to avoid shimmering.
   update(focus, viewRadius, cameraDistance) {
     const cam = this.sun.shadow.camera;
-    const ext = Math.max(14, viewRadius + 10);
+    // Resize the shadow frustum only in coarse steps. Every change redraws the shadow
+    // map at a new texel size, so changing it each frame (as the view zooms in on
+    // entering, or on scroll) makes every shadow edge crawl.
+    const need = Math.max(14, viewRadius + 10);
+    if (need > this.shadowExt || need < this.shadowExt - 10) this.shadowExt = Math.ceil(need / 5) * 5;
+    const ext = this.shadowExt;
     if (cam.right !== ext) {
       cam.left = -ext;
       cam.right = ext;
