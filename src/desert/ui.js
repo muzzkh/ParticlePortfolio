@@ -34,7 +34,6 @@ export class UI {
       atomics: $('btnAtomics'),
       sound: $('btnSound'),
     };
-    this.buttons.sound.classList.add('on');
     this.steps = [];
     this.toastTimer = 0;
     this.hidden = false;

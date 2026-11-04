@@ -4,7 +4,7 @@
 export class DesertAudio {
   constructor() {
     this.ctx = null;
-    this.enabled = true;
+    this.enabled = false;
     this.started = false;
   }
 

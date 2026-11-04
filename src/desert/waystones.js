@@ -213,9 +213,13 @@ uniform float uTime;
 uniform float uSeed;
 varying vec2 vUv;
 void main() {
-  float x = abs(vUv.x * 2.0 - 1.0);
+  // Clamp the uvs: the scene is multisampled, so pixels on the column's edges are shaded
+  // at their centres, just outside the quad, where the uvs run past 0..1. pow() of the
+  // negative base there is NaN, and the bloom pass smears one NaN over the whole frame:
+  // the screen flashed black.
+  float x = min(abs(vUv.x * 2.0 - 1.0), 1.0);
   float core = pow(1.0 - x, 3.5);
-  float y = vUv.y;
+  float y = clamp(vUv.y, 0.0, 1.0);
   float fade = smoothstep(0.0, 0.08, y) * pow(1.0 - y, 1.6);
   // slow bands of brighter light drifting up the column
   float drift = 0.78 + 0.22 * sin(y * 11.0 - uTime * 1.7 + uSeed * 6.0) * sin(y * 4.0 - uTime * 0.6 + uSeed);

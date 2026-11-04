@@ -178,8 +178,10 @@ function enterDesert() {
   if (entered) return;
   entered = true;
   ui.enter();
-  audio.start();
-  audio.resume();
+  if (soundOn) {
+    audio.start();
+    audio.resume();
+  }
   cam.heightTarget = 20;
   player.rhythm = 0;
   canvas.focus();
@@ -416,7 +418,8 @@ function toggleStorm() {
   ui.toast(stormTarget > 0.5 ? 'A Coriolis storm rolls in over the erg.' : 'The storm passes.', 3.5);
 }
 
-let soundOn = true;
+// muted until the visitor turns it on (the Sound button or M)
+let soundOn = false;
 function toggleSound() {
   soundOn = !soundOn;
   audio.setEnabled(soundOn);
