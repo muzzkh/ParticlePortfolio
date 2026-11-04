@@ -31,7 +31,10 @@ float wormBulge(vec2 p) {
   float r = uWorm.w * taper;
   float g = exp(-(dist * dist) / (r * r));
   // a little bow wave ahead of the head
-  float bow = exp(-pow((along - 1.5) / 2.0, 2.0) - pow(across / (uWorm.w * 1.3), 2.0)) * 0.35;
+  // squares, not pow(): pow() of a negative base is undefined, NaN on some GPUs
+  float ba = (along - 1.5) / 2.0;
+  float bc = across / (uWorm.w * 1.3);
+  float bow = exp(-ba * ba - bc * bc) * 0.35;
   return uWorm.z * (g * taper + bow);
 }
 
