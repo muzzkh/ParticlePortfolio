@@ -17,6 +17,7 @@ import initialSite from './resume/content.js';
 import { setAssetOverrides } from './assets.js';
 import { createEditMode } from './editmode.js';
 import { GameGrounds } from './games/grounds.js';
+import { Minimap } from './minimap.js';
 import { Atomics, LaunchKey, strikeTargets } from './atomics.js';
 import { LaunchPad } from './launchpad.js';
 
@@ -481,6 +482,7 @@ function newWorld(seed) {
     player.spawn(s.x, s.z, player.yaw);
     rocks.update(s.x, s.z);
     layoutRoad(s.x, s.z);
+    minimap.reset();
     cam.focus.set(s.x, player.pos.y + 0.9, s.z);
     clickTarget = null;
     travel = null;
@@ -514,6 +516,8 @@ const cam = {
 const camDir = new THREE.Vector3();
 const camRight = new THREE.Vector3();
 const camUp = new THREE.Vector3();
+let sheetShift = 0; // px the view is lifted by while a card covers the bottom of a phone
+let sheetShiftX = 0; // px the walker is moved left by while a card covers the middle
 const _focusTarget = new THREE.Vector3();
 
 function viewRadius(h) {
@@ -560,6 +564,27 @@ function updateCamera(dt, t) {
   if (editor) _focusTarget.copy(editor.focus);
   else if (gv) _focusTarget.copy(gv.focus);
   else _focusTarget.set(player.pos.x + player.vel.x * lead, player.bodyY + 0.2, player.pos.z + player.vel.z * lead);
+  // keep the walker clear of an open card: above it when it's a sheet along the bottom
+  // (phones), beside it when it's a panel that reaches the middle (narrow or sideways screens)
+  let wantY = 0;
+  let wantX = 0;
+  const card = !editor && !gv ? codex.sheetRect() : null;
+  if (card) {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    if (card.width > W * 0.9) {
+      const above = (Math.min(H * 0.22, 130) + card.top) / 2; // middle of the open sky above the card
+      wantY = Math.max(0, H / 2 - above);
+    } else if (card.left < W / 2 + 40) {
+      const index = codex.root.getBoundingClientRect();
+      const from = !codex.root.classList.contains('collapsed') && index.right < card.left - 120 ? index.right : 0;
+      wantX = Math.max(0, W / 2 - (from + card.left) / 2);
+    }
+  }
+  sheetShift += (wantY - sheetShift) * (1 - Math.exp(-dt * 4));
+  sheetShiftX += (wantX - sheetShiftX) * (1 - Math.exp(-dt * 4));
+  if (sheetShift > 0.5) _focusTarget.addScaledVector(camUp, (-sheetShift * cam.height) / window.innerHeight);
+  if (sheetShiftX > 0.5) _focusTarget.addScaledVector(camRight, (sheetShiftX * cam.height) / window.innerHeight);
   let h = gv ? gv.height : cam.heightTarget;
   if (cam.cine > 0.001) {
     const k = 0.5 * cam.cine;
@@ -678,6 +703,14 @@ window.addEventListener('keydown', (e) => {
     case 'KeyE':
       cam.yawTarget += Math.PI / 4;
       break;
+    case 'Minus':
+    case 'NumpadSubtract':
+      zoomBy(1.35);
+      break;
+    case 'Equal':
+    case 'NumpadAdd':
+      zoomBy(1 / 1.35);
+      break;
     case 'BracketLeft':
       setTimeOfDay(atmos.time - 0.25);
       break;
@@ -748,11 +781,16 @@ canvas.addEventListener('pointerdown', (e) => {
   if (!entered) return;
   if (e.button !== 0) return;
   audio.resume();
-  canvas.setPointerCapture(e.pointerId);
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    /* the pointer is already gone */
+  }
   if (games.active) {
     games.pointer('down', e, pickGround(e.clientX, e.clientY));
     return;
   }
+  if (pinch || (e.pointerType === 'touch' && touches.size > 1)) return;
   pointerHeld = true;
   const now = performance.now();
   clickRun = now - lastClick < 320;
@@ -764,7 +802,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (e.buttons) games.pointer('move', e, pickGround(e.clientX, e.clientY));
     return;
   }
-  if (pointerHeld) setClickTarget(e);
+  if (pointerHeld && !pinch) setClickTarget(e);
 });
 const endPointer = (e) => {
   pointerHeld = false;
@@ -777,7 +815,7 @@ canvas.addEventListener(
   (e) => {
     e.preventDefault();
     if (EDIT || games.active) return; // the editor zooms further out; games set their own view
-    cam.heightTarget = THREE.MathUtils.clamp(cam.heightTarget * Math.exp(e.deltaY * 0.0012), 9, 46);
+    zoomBy(Math.exp(e.deltaY * 0.0012));
   },
   { passive: false },
 );
@@ -785,6 +823,46 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 const input = { x: 0, z: 0, run: false };
 const HOLD = { x: 0, z: 0, run: false };
+
+// ---- zoom: the wheel, − and =, the buttons by the minimap, and pinching on a phone ----
+const ZOOM_MIN = 9;
+const ZOOM_MAX = 80;
+function zoomBy(f) {
+  if (EDIT || games.active) return;
+  cam.heightTarget = THREE.MathUtils.clamp(cam.heightTarget * f, ZOOM_MIN, ZOOM_MAX);
+}
+document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1 / 1.35));
+document.getElementById('zoomOut').addEventListener('click', () => zoomBy(1.35));
+const touches = new Map();
+let pinch = null;
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch') return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 2 && !games.active) {
+    const [a, b] = [...touches.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, h: cam.heightTarget };
+    // two fingers mean zoom, not walk
+    clickTarget = null;
+    travel = null;
+    markerLife = 0;
+    pointerHeld = false;
+  }
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && touches.size === 2) {
+    const [a, b] = [...touches.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    cam.heightTarget = THREE.MathUtils.clamp((pinch.h * pinch.d) / d, ZOOM_MIN, ZOOM_MAX);
+  }
+});
+const endTouch = (e) => {
+  touches.delete(e.pointerId);
+  if (touches.size < 2) pinch = null;
+};
+canvas.addEventListener('pointerup', endTouch);
+canvas.addEventListener('pointercancel', endTouch);
 function readInput(t) {
   let sx = 0;
   let sy = 0;
@@ -905,6 +983,84 @@ const games = new GameGrounds({
   },
 });
 let gameCam = null;
+
+// ---------------------------------------------------------------------------
+// Minimap and full map
+// ---------------------------------------------------------------------------
+const minimap = new Minimap({
+  onPick: (p) => {
+    if (!entered) enterDesert();
+    if (games.active) return;
+    if (p.type === 'stone') selectStone(p.id);
+    else if (p.type === 'game') {
+      const s = games.byId.get(p.id);
+      if (s) walkTo(s.startPoint.x, s.startPoint.z, Math.hypot(s.startPoint.x - player.pos.x, s.startPoint.z - player.pos.z) > 9);
+    } else {
+      travel = null;
+      walkTo(p.x, p.z, Math.hypot(p.x - player.pos.x, p.z - player.pos.z) > 9);
+    }
+  },
+});
+let mapPathsFor = null;
+let mapPaths = [];
+const mapState = {
+  px: 0,
+  pz: 0,
+  yaw: 0,
+  camYaw: 0,
+  focus: { x: 0, z: 0 },
+  viewW: 0,
+  viewD: 0,
+  stones: [],
+  current: null,
+  paths: [],
+  games: [],
+  rocks: [],
+  worm: null,
+  spawn: { x: 0, z: 0 },
+  compactRadius: 60,
+};
+function updateMinimap() {
+  const m = mapState;
+  m.px = player.pos.x;
+  m.pz = player.pos.z;
+  m.yaw = player.yaw;
+  m.camYaw = cam.yaw;
+  m.focus.x = cam.focus.x;
+  m.focus.z = cam.focus.z;
+  const aspect = window.innerWidth / window.innerHeight;
+  m.viewW = cam.height * aspect;
+  m.viewD = cam.height / Math.sin(cam.pitch);
+  m.stones = waystones.stones;
+  m.current = codex.currentId;
+  // the road and the project path, from the start through each stone or pad in turn
+  const key = `${spawnPoint.x},${spawnPoint.z}`;
+  if (mapPathsFor !== waystones || mapPaths.key !== key) {
+    mapPathsFor = waystones;
+    const road = [spawnPoint, ...waystones.stones.filter((st) => st.kind !== 'project').map((st) => ({ x: st.x, z: st.z }))];
+    const pads = [spawnPoint, ...waystones.stones.filter((st) => st.kind === 'project').map((st) => ({ x: st.x, z: st.z }))];
+    mapPaths = [
+      { color: 'rgba(255, 196, 140, 0.55)', points: road },
+      { color: 'rgba(143, 227, 181, 0.55)', points: pads },
+    ].filter((p) => p.points.length > 1);
+    mapPaths.key = key;
+  }
+  m.paths = mapPaths;
+  m.games = games.visible().map((g) => ({
+    id: games.meta(g).id,
+    title: games.meta(g).title,
+    x: g.pos.x,
+    z: g.pos.z,
+    sx: g.startPoint.x,
+    sz: g.startPoint.z,
+    r: games.meta(g).id === 'worm' ? 9.4 : 3.4,
+  }));
+  m.rocks = rocks.colliders;
+  m.worm = worm.active && worm.state === 'approach' ? { x: worm.head.x, z: worm.head.z } : null;
+  m.spawn = spawnPoint;
+  m.compactRadius = window.innerWidth <= 760 ? 48 : 62;
+  minimap.update(m);
+}
 
 // P and the Games button: head for the games, one site after another
 function goToGames() {
@@ -1401,6 +1557,7 @@ function frame(now) {
   ui.update(dt, player.time, player.rhythm, player.regularity, player.sandwalk, wormInfo);
   ui.setTime(atmos.time);
   updateLabels();
+  if (!EDIT && entered) updateMinimap();
   if (editor) editor.update(dt, t);
   settleResolution(realDt);
   adaptResolution(realDt);
@@ -1459,6 +1616,9 @@ if (previewSite) {
 
 // expose for debugging in the console
 window.arrakis = {
+  get cardShift() {
+    return { y: sheetShift, x: sheetShiftX };
+  },
   scene,
   camera,
   renderer,
@@ -1479,6 +1639,7 @@ window.arrakis = {
   setTimeOfDay,
   selectStone,
   games,
+  minimap,
   atomics,
   launchpad,
   setPixelRatio: (pr) => {

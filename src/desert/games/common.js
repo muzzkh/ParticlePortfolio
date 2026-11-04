@@ -125,7 +125,7 @@ export class GameHud {
       ...list.map((b) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = `gh-btn ${b.cls || ''}`;
+        btn.className = `gh-btn gh-${b.id} ${b.cls || ''}`;
         btn.textContent = b.label;
         btn.setAttribute('aria-label', b.aria || b.label);
         const down = (e) => {

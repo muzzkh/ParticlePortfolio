@@ -44,6 +44,10 @@ body {
   touch-action: none;
   cursor: crosshair;
   outline: none;
+  /* a long press while playing shouldn't select or pop up a menu */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Until the scene is ready (body.ready) the intro text stays hidden so nothing pops in
@@ -836,6 +840,11 @@ input[type='range']::-moz-range-thumb {
 .ds-close:hover {
   background: rgba(255, 220, 180, 0.14);
 }
+/* the grip and expand button only appear on phones, where the card is a sheet */
+.ds-grip,
+.ds-expand {
+  display: none;
+}
 .ds-close svg {
   width: 13px;
   height: 13px;
@@ -1369,6 +1378,154 @@ body:not(.editing) .edit-label {
   cursor: pointer;
 }
 
+/* ------------------------------------------------------------------ minimap, zoom, map */
+.mapw {
+  position: absolute;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+.minimap {
+  position: relative;
+  width: 156px;
+  height: 156px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #6b4329;
+  box-shadow: var(--shadow), 0 0 0 4px rgba(22, 12, 6, 0.35);
+  overflow: hidden;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.minimap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.minimap:hover {
+  border-color: rgba(255, 222, 180, 0.5);
+}
+.zoom {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+}
+.zoom button,
+.mf-tools button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--glass-strong);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--ink);
+  font: 500 20px/1 var(--ui);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.zoom button:hover,
+.mf-tools button:hover {
+  background: rgba(255, 220, 180, 0.16);
+}
+/* the card on the right stops above the minimap */
+.dossier {
+  max-height: calc(100vh - max(20px, env(safe-area-inset-top)) - 200px);
+}
+body.editing .mapw,
+body.gaming .mapw {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.map-full {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(14, 7, 3, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.mf-box {
+  position: relative;
+  width: min(720px, 100%, calc(100vh - 140px));
+  width: min(720px, 100%, calc(100dvh - 140px));
+  display: grid;
+  gap: 10px;
+}
+#mapCanvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  touch-action: none;
+  cursor: crosshair;
+}
+.mf-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+}
+.mf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--ink);
+  text-shadow: 0 1px 6px rgba(20, 8, 0, 0.8);
+}
+.mf-legend em {
+  flex-basis: 100%;
+  font-style: normal;
+  color: var(--ink-dim);
+}
+.lg {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+.lg.exp {
+  background: #ffa25e;
+  transform: rotate(45deg) scale(0.85);
+}
+.lg.edu {
+  background: #8ccfff;
+  border-radius: 50%;
+}
+.lg.proj {
+  background: #8fe3b5;
+}
+.lg.skill {
+  width: 0;
+  height: 0;
+  border: 5px solid transparent;
+  border-bottom: 9px solid #f3d27e;
+  border-top: 0;
+}
+.lg.game {
+  border: 2px solid #ffc46b;
+  border-radius: 50%;
+}
+
 /* ------------------------------------------------------------------ games */
 /* site labels: the waystone label, in the games' colour, with a prompt when you're there */
 .wl.kind-game {
@@ -1516,6 +1673,54 @@ body.gaming .wl:not(.kind-game) {
   opacity: 0 !important;
   visibility: hidden !important;
 }
+/* Play, while you stand on a game's ring */
+.playbtn {
+  position: fixed;
+  left: 50%;
+  bottom: calc(max(20px, env(safe-area-inset-bottom)) + 96px);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border: 1px solid rgba(255, 196, 107, 0.65);
+  border-radius: 999px;
+  background: rgba(46, 22, 6, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff3dc;
+  font: 600 14px var(--ui);
+  letter-spacing: 0.08em;
+  box-shadow: 0 0 24px rgba(255, 170, 80, 0.25);
+  transform: translateX(-50%);
+  cursor: pointer;
+  touch-action: manipulation;
+  animation: play-in 0.35s ease;
+}
+.playbtn kbd {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font: 600 10px var(--ui);
+  color: var(--ink-dim);
+}
+@keyframes play-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+}
+body.gaming .playbtn,
+body.editing .playbtn,
+body.mapping .playbtn {
+  display: none;
+}
+@media (pointer: coarse) {
+  .gh-leave {
+    padding: 9px 16px;
+    font-size: 13px;
+  }
+}
 /* with touch buttons, the hint sits above them */
 .gamehud:has(.gh-btn) .gh-hint {
   bottom: calc(max(18px, env(safe-area-inset-bottom)) + 112px);
@@ -1534,6 +1739,7 @@ body.gaming .wl:not(.kind-game) {
   display: none;
 }
 .gh-btn {
+  -webkit-touch-callout: none;
   pointer-events: auto;
   width: 74px;
   height: 74px;
@@ -1572,21 +1778,117 @@ body.gaming .wl:not(.kind-game) {
   .codex {
     --codex-top: calc(max(16px, env(safe-area-inset-top)) + 52px);
     left: 12px;
-    width: min(300px, calc(100vw - 24px));
+    width: min(300px, calc(100vw - 24px - 104px));
     max-height: 58vh;
   }
+  /* the minimap sits in the top right corner on a phone, the zoom buttons under it */
+  .mapw {
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: auto;
+    flex-direction: column-reverse;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .minimap {
+    width: 92px;
+    height: 92px;
+  }
+  .zoom {
+    flex-direction: row;
+    gap: 8px;
+  }
+  .zoom button {
+    width: 42px;
+    height: 42px;
+  }
+  .playbtn {
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 174px);
+    padding: 14px 24px;
+    font-size: 15px;
+  }
+  /* the walker is lifted above the card: keep the zoom buttons out of the way of it */
+  body.reading .zoom {
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* the card is a short sheet along the bottom, so the walker stays in sight above it;
+     the grip or the chevron (or a swipe) opens it up */
   .dossier {
     top: auto;
     right: 0;
     bottom: 0;
     left: 0;
     width: auto;
-    max-height: 66vh;
+    max-height: min(44vh, 380px);
     padding-bottom: env(safe-area-inset-bottom);
     border-width: 1px 0 0;
     border-radius: 18px 18px 0 0;
     background: rgba(22, 12, 6, 0.9);
     transform: translateY(28px);
+    transition: opacity 0.45s ease, transform 0.6s cubic-bezier(0.2, 0.7, 0.1, 1), visibility 0.45s, max-height 0.4s cubic-bezier(0.2, 0.7, 0.1, 1);
+  }
+  .dossier.expanded {
+    max-height: calc(100vh - max(16px, env(safe-area-inset-top)) - 56px);
+    max-height: calc(100dvh - max(16px, env(safe-area-inset-top)) - 56px);
+  }
+  .ds-grip {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 2;
+    width: 88px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    background: none;
+    transform: translateX(-50%);
+    touch-action: none;
+    cursor: pointer;
+  }
+  .ds-grip span {
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 2px;
+    background: rgba(255, 230, 200, 0.38);
+  }
+  .ds-expand {
+    position: absolute;
+    top: 20px;
+    right: 54px;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: rgba(255, 230, 200, 0.06);
+    color: var(--ink);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .ds-expand svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.3s ease;
+  }
+  .dossier.expanded .ds-expand svg {
+    transform: rotate(180deg);
+  }
+  .ds-close {
+    top: 20px;
+    width: 34px;
+    height: 34px;
+    touch-action: manipulation;
   }
   body.reading #labels {
     opacity: 0;
@@ -1595,13 +1897,25 @@ body.gaming .wl:not(.kind-game) {
     display: none;
   }
   .dossier h2 {
-    font-size: 25px;
+    margin: 6px 0 2px;
+    font-size: 22px;
   }
   .ds-head {
-    padding: 16px 18px 12px;
+    padding: 26px 98px 10px 18px;
+    touch-action: none;
+  }
+  .ds-kicker {
+    font-size: 11px;
   }
   .ds-body {
-    padding: 14px 18px 10px;
+    padding: 12px 18px 8px;
+  }
+  .ds-nav {
+    padding: 6px 12px;
+  }
+  .ds-nav button {
+    padding: 8px 12px;
+    touch-action: manipulation;
   }
   body.reading .rhythm,
   body.reading .panel {
@@ -1609,7 +1923,7 @@ body.gaming .wl:not(.kind-game) {
     pointer-events: none;
   }
   #toast {
-    top: calc(max(16px, env(safe-area-inset-top)) + 118px);
+    top: calc(max(16px, env(safe-area-inset-top)) + 160px);
     bottom: auto;
     width: calc(100vw - 32px);
     font-size: 19px;
@@ -1668,6 +1982,115 @@ body.gaming .wl:not(.kind-game) {
   .ws-title,
   #intro::after {
     animation: none;
+  }
+}
+
+/* phones held sideways: short screens need the room for the desert */
+@media (max-height: 500px) and (orientation: landscape) {
+  .keys,
+  .rhythm {
+    display: none;
+  }
+  .panel {
+    left: auto;
+    right: max(10px, env(safe-area-inset-right));
+    top: auto;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: auto;
+    padding: 4px;
+    border-radius: 10px;
+  }
+  .panel-row {
+    display: none;
+  }
+  .buttons {
+    grid-template-columns: repeat(7, auto);
+    gap: 4px;
+    margin-top: 0;
+  }
+  .buttons button {
+    justify-content: center;
+    padding: 6px 9px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .buttons button kbd {
+    display: none;
+  }
+  .buttons button:last-child {
+    grid-column: auto;
+  }
+  .codex {
+    width: min(280px, 40vw);
+    max-height: calc(100vh - 110px);
+  }
+  /* the card is a panel down the right side; the walker moves over to the left */
+  .dossier,
+  .dossier.expanded {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: auto;
+    width: min(400px, 52vw);
+    max-height: none;
+    border-width: 1px;
+    border-radius: 16px;
+    transform: translateX(18px);
+  }
+  .ds-grip,
+  .ds-expand {
+    display: none;
+  }
+  .ds-head {
+    padding: 14px 52px 8px 16px;
+  }
+  .ds-close {
+    top: 12px;
+  }
+  body.reading .mapw {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .minimap {
+    width: 84px;
+    height: 84px;
+  }
+  #toast {
+    top: calc(max(10px, env(safe-area-inset-top)) + 54px);
+    font-size: 16px;
+  }
+  .playbtn {
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 52px);
+  }
+  /* in a game: hints under the bar, steering on the left, jump on the right */
+  .gh-hint,
+  .gamehud:has(.gh-btn) .gh-hint {
+    top: calc(max(12px, env(safe-area-inset-top)) + 58px);
+    bottom: auto;
+  }
+  .gh-pad {
+    bottom: max(10px, env(safe-area-inset-bottom));
+    justify-content: flex-start;
+    gap: 10px;
+  }
+  .gh-btn {
+    width: 62px;
+    height: 62px;
+  }
+  .gh-btn.gh-jump {
+    order: 3;
+    margin-left: auto;
+    flex: 0 0 110px;
+  }
+  .gh-btn.gh-right {
+    order: 2;
+  }
+  .gh-btn.gh-left {
+    order: 1;
+  }
+  .gh-center {
+    top: 22%;
   }
 }
 

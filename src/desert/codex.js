@@ -108,6 +108,40 @@ export class Codex {
       pos: $('dsPos'),
     };
     $('dsClose').addEventListener('click', () => handlers.close());
+    // on phones the card opens short, so the walker stays in view; it expands on demand
+    this.expanded = false;
+    this.expandBtn = $('dsExpand');
+    this.grip = $('dsGrip');
+    let swiped = false;
+    const toggle = () => {
+      if (swiped) return void (swiped = false);
+      this.setExpanded(!this.expanded);
+    };
+    this.expandBtn.addEventListener('click', toggle);
+    this.grip.addEventListener('click', toggle);
+    // swipe the top of the card: up to expand, down to shrink (or close when already short)
+    let startY = null;
+    const head = this.dossier.querySelector('.ds-head');
+    for (const t of [this.grip, head]) {
+      t.addEventListener('pointerdown', (e) => {
+        if (window.innerWidth > 760 || e.target.closest('.ds-close')) return;
+        startY = e.clientY;
+      });
+    }
+    window.addEventListener('pointerup', (e) => {
+      if (startY === null) return;
+      const dy = e.clientY - startY;
+      startY = null;
+      if (dy < -28) {
+        swiped = !!(e.target.closest && e.target.closest('.ds-grip, .ds-expand'));
+        this.setExpanded(true);
+      } else if (dy > 36) {
+        swiped = !!(e.target.closest && e.target.closest('.ds-grip, .ds-expand'));
+        if (this.expanded) this.setExpanded(false);
+        else handlers.close();
+      }
+    });
+    window.addEventListener('pointercancel', () => (startY = null));
     $('dsPrev').addEventListener('click', () => handlers.step(-1));
     $('dsNext').addEventListener('click', () => handlers.step(1));
     for (const id of ['dsClose', 'dsPrev', 'dsNext']) $(id).addEventListener('mouseup', (e) => e.currentTarget.blur());
@@ -191,7 +225,7 @@ export class Codex {
     if (this.currentId === entry.id && !force) return;
     this.currentId = entry.id;
     const d = this.ds;
-    this.dossier.className = `dossier kind-${entry.kind}`;
+    this.dossier.className = `dossier kind-${entry.kind}${this.expanded ? ' expanded' : ''}`;
     d.mark.replaceChildren(mark(entry.kind));
     d.kind.textContent = KINDS[entry.kind]?.label || entry.kind;
     d.years.textContent = entry.years || '';
@@ -257,8 +291,26 @@ export class Codex {
     for (const [id, l] of this.labels) l.el.classList.toggle('current', id === entry.id);
   }
 
+  setExpanded(on) {
+    this.expanded = !!on;
+    this.dossier.classList.toggle('expanded', this.expanded);
+    const label = this.expanded ? 'Show less of this card' : 'Show more of this card';
+    for (const b of [this.expandBtn, this.grip]) {
+      b.setAttribute('aria-expanded', String(this.expanded));
+      b.setAttribute('aria-label', label);
+    }
+  }
+
+  // where the open card sits on the screen (null when closed), so the view can keep the
+  // walker clear of it
+  sheetRect() {
+    if (!this.isOpen) return null;
+    return this.dossier.getBoundingClientRect();
+  }
+
   close() {
     if (!this.isOpen) return;
+    this.setExpanded(false);
     this.currentId = null;
     this.source = null;
     this.dossier.classList.remove('open');

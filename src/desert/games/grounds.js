@@ -17,7 +17,22 @@ export class GameGrounds {
   //         teleport(x, z, yaw, fade), travel(x, z), onStart(site), onEnd(site) }
   constructor(deps) {
     this.deps = deps;
-    const ctx = { scene: deps.scene, particles: deps.particles, trails: deps.trails, audio: deps.audio, tint: deps.tint, rockMaterial: deps.rockMaterial };
+    // on a phone, the games' sounds come with a little buzz
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const BUZZ = { pickup: 12, jump: 8, clear: 18, hit: 90, die: 140 };
+    const audio = {
+      blip: (name) => {
+        deps.audio.blip(name);
+        if (this.touchMode && !calm.matches && navigator.vibrate && BUZZ[name]) {
+          try {
+            navigator.vibrate(BUZZ[name]);
+          } catch {
+            /* not allowed here */
+          }
+        }
+      },
+    };
+    const ctx = { scene: deps.scene, particles: deps.particles, trails: deps.trails, audio, tint: deps.tint, rockMaterial: deps.rockMaterial };
     this.sites = [new WormPit(ctx), new DuneRun(ctx), new Airfield(ctx)];
     this.byId = new Map(this.sites.map((s) => [s.constructor.meta.id, s]));
     this.best = loadBest();
@@ -30,6 +45,13 @@ export class GameGrounds {
         this.active.touch(id, down);
       },
     );
+    // a big Play button while you stand on a site's ring (easier than the label on a phone)
+    this.play = document.createElement('button');
+    this.play.type = 'button';
+    this.play.className = 'playbtn';
+    this.play.hidden = true;
+    this.play.addEventListener('click', () => this.tryStart());
+    document.body.append(this.play);
     this.labels = new Map();
     for (const site of this.sites) {
       const meta = site.constructor.meta;
@@ -55,6 +77,8 @@ export class GameGrounds {
         this.hud.setScore(`${this.score} spice`);
       },
       thrum: (v) => (this.thrum = v),
+      // tall phone screens get a calmer, roomier flight
+      portrait: () => window.innerWidth / window.innerHeight < 0.85,
     };
   }
 
@@ -192,7 +216,8 @@ export class GameGrounds {
     this.active = site;
     const meta = this.meta(site);
     this.hud.show(meta.title);
-    this.hud.setHint(this.touchMode ? meta.touchKeys : meta.keys);
+    const sideways = this.touchMode && meta.id === 'fly' && this.api.portrait() ? ' · turn your phone sideways for a wider view' : '';
+    this.hud.setHint((this.touchMode ? meta.touchKeys : meta.keys) + sideways);
     this.hud.buttons(this.touchMode ? meta.buttons : []);
     this.deps.onStart(site);
     this._ready();
@@ -338,6 +363,17 @@ export class GameGrounds {
     if (entered && !this.active) {
       for (const s of this.visible()) {
         if (Math.hypot(px - s.startPoint.x, pz - s.startPoint.z) < NEAR) near = s;
+      }
+    }
+    if (near !== this.nearSite) {
+      this.play.hidden = !near;
+      if (near) {
+        this.play.replaceChildren(document.createTextNode(`Play ${this.meta(near).title}`));
+        if (!this.touchMode) {
+          const k = document.createElement('kbd');
+          k.textContent = 'Space';
+          this.play.append(k);
+        }
       }
     }
     this.nearSite = near;

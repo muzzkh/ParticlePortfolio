@@ -66,8 +66,12 @@
       </aside>
 
       <article id="dossier" class="dossier" aria-hidden="true" aria-labelledby="dsTitle" inert>
+        <button id="dsGrip" class="ds-grip" type="button" aria-label="Show more of this card" aria-expanded="false"><span></span></button>
         <header class="ds-head">
           <div class="ds-kicker"><span id="dsMark" class="ds-mark"></span><span id="dsKind"></span><span class="ds-years" id="dsYears"></span></div>
+          <button id="dsExpand" class="ds-expand" type="button" aria-label="Show more of this card" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
+          </button>
           <button id="dsClose" class="ds-close" type="button" aria-label="Close (Esc)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
@@ -115,12 +119,20 @@
 
       <div id="toast" aria-live="polite"></div>
 
+      <div class="mapw" id="mapw">
+        <div class="zoom" role="group" aria-label="Zoom">
+          <button id="zoomIn" type="button" title="Zoom in (=)" aria-label="Zoom in">+</button>
+          <button id="zoomOut" type="button" title="Zoom out (−)" aria-label="Zoom out">−</button>
+        </div>
+        <button class="minimap" id="minimap" type="button" title="Open the map" aria-label="Open the map"><canvas id="minimapCanvas"></canvas></button>
+      </div>
+
       <footer class="keys" id="keys">
         <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · <kbd>Shift</kbd> run</div>
         <div><kbd>Click</kbd> walk to · <kbd>Dbl</kbd> run to</div>
         <div><kbd>R</kbd> résumé · <kbd>,</kbd><kbd>.</kbd> prev / next · <kbd>Esc</kbd> close</div>
         <div><kbd>P</kbd> games · <kbd>Space</kbd> play on a ring</div>
-        <div><kbd>Q</kbd><kbd>E</kbd> turn view · <kbd>Scroll</kbd> zoom</div>
+        <div><kbd>Q</kbd><kbd>E</kbd> turn view · <kbd>Scroll</kbd> <kbd>−</kbd><kbd>=</kbd> zoom</div>
         <div><kbd>H</kbd> hide interface</div>
       </footer>
     </div>
@@ -144,6 +156,22 @@
         <nav class="intro-links" id="introLinks" aria-label="Contact and downloads"></nav>
       </div>
     </section>
+
+    <!-- Map -->
+    <div id="mapFull" class="map-full" role="dialog" aria-modal="true" aria-label="Map" hidden>
+      <div class="mf-box">
+        <canvas id="mapCanvas" aria-label="Map of the desert around you"></canvas>
+        <div class="mf-tools">
+          <button id="mapIn" type="button" aria-label="Zoom the map in">+</button>
+          <button id="mapOut" type="button" aria-label="Zoom the map out">−</button>
+          <button id="mapClose" type="button" aria-label="Close the map (Esc)">✕</button>
+        </div>
+        <div class="mf-legend">
+          <span><i class="lg exp"></i>Experience</span><span><i class="lg edu"></i>Education</span><span><i class="lg proj"></i>Projects</span><span><i class="lg skill"></i>Skills</span><span><i class="lg game"></i>Games</span>
+          <em>Filled once found · tap a stone, a game or the sand to go there</em>
+        </div>
+      </div>
+    </div>
 
     <div id="fade"></div>
     <div id="nukeflash" aria-hidden="true"></div>

@@ -54,6 +54,7 @@ src/
     manage/                # /management itself
     resume/content.js      # Points at src/data/site.json and this repo (kept across syncs)
     games/                 # The Worm Pit, Dune Run and Airfield, played in the desert
+    minimap.js             # The minimap and the full map
     …                      # terrain, sandworm, walker, ornithopter, atomics, audio
 ```
 

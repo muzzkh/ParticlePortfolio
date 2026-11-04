@@ -209,8 +209,9 @@ export class Airfield {
   }
 
   // ---------------------------------------------------------------- the game
-  reset() {
+  reset(api) {
     this._park();
+    this.easy = !!(api && api.portrait());
     this.speed = 9;
     this.gatesPassed = 0;
     this.spice = 0;
@@ -238,7 +239,7 @@ export class Airfield {
     this.gatesSpawned++;
     if (!g) return;
     const base = this._baseAt(s);
-    const half = Math.max(2.15, 3.1 - s / 700);
+    const half = Math.max(2.15, 3.1 - s / 700) + (this.easy ? 0.4 : 0);
     const c = base + 4.2 + rng() * (STORM - 8.4);
     g.s = s;
     g.low = c - half;
@@ -340,7 +341,7 @@ export class Airfield {
     }
 
     // flying
-    this.speed = Math.min(14, 9 + this.gatesPassed * 0.18);
+    this.speed = Math.min(14, 9 + this.gatesPassed * 0.18) * (this.easy ? 0.78 : 1);
     this.vy += (this.holding ? 15 : -11) * dt;
     this.vy = Math.max(-7.5, Math.min(6.5, this.vy));
     this.y += this.vy * dt;
