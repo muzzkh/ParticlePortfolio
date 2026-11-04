@@ -55,6 +55,10 @@ export default function App() {
       </main>
 
       <footer className="page-footer">
+        <nav className="footer-links" aria-label="Other versions">
+          <a href="/">← Walk the desert résumé</a>
+          <a href="/Muzzamil_Khan_Resume.pdf">Download PDF</a>
+        </nav>
         <span>
           © {new Date().getFullYear()} Muzzamil Khan · Built with React + Vite
         </span>

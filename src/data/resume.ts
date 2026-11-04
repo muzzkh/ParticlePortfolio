@@ -43,19 +43,82 @@ export type SkillGroup = {
 export const profile = {
   name: 'Muzzamil Khan',
   title: 'Software Engineer',
-  tagline:
-    'Computer Engineer building reliable, AI-forward software at scale.',
+  // shown above the name on the desert's intro screen
+  headline: 'Computer Engineer',
+  tagline: 'Computer Engineer building reliable, AI-forward software at scale.',
   links: [
     { label: 'muzzkprof@gmail.com', href: 'mailto:muzzkprof@gmail.com', icon: 'mail' },
-    {
-      label: 'linkedin.com/in/muzzamil-khan',
-      href: 'https://linkedin.com/in/muzzamil-khan/',
-      icon: 'linkedin',
-    },
+    { label: 'linkedin.com/in/muzzamil-khan', href: 'https://linkedin.com/in/muzzamil-khan/', icon: 'linkedin' },
   ] as LinkItem[],
 }
 
+// Newest first: the first entry is also the waystone closest to where the
+// desert walk starts.
+export const experience: ExperienceItem[] = [
+  {
+    company: 'Geico',
+    role: 'Software Engineer II',
+    period: 'February 2026 – Present',
+    bullets: [
+      'Led the end-to-end re-platforming of a legacy claims frontend in Flutter, owning the system architecture, technical RFC, and multi-quarter delivery roadmap adopted across the team.',
+      'Designed and rolled out an Azure Blob Storage–based deployment strategy, cutting cumulative passive build/deploy time by 300+ hours per year and unblocking parallel release trains.',
+      'Shipped 80+ features using an AI-first approach for the inaugural release, scaling the platform from pilot to four states with zero P1 incidents at launch.',
+      'Established frontend engineering standards (component architecture, state management, CI/CD) that the broader team has adopted as the baseline for new Flutter work.',
+    ],
+    tags: ['Flutter', 'Azure Blob Storage', 'CI/CD', 'System design', 'AI-first'],
+  },
+  {
+    company: 'Geico',
+    role: 'Software Engineer I',
+    period: 'July 2024 – February 2026',
+    bullets: [
+      'Led implementation of a React + TypeScript / Spring Boot vehicle damage intake application embedded in a C# host serving 40,000+ requests per day, owning API contracts, component design, and rollout.',
+      'Integrated structured damage data into a predictive ML pipeline that outputs estimated monetary loss per claim, directly informing downstream adjuster workflows.',
+      'Led the overhaul of the shop selection and appointment reservation flow, migrating from legacy ATLAS data to the Entegral (Enterprise) vendor integration, modernizing the data contract and reducing brittle legacy coupling.',
+      'Delivered 35+ features across the Damages and Scheduling claims applications and resolved 15+ production and pre-prod defects, materially reducing exception rates and improving reliability.',
+      'Drove an AI-first initiative to make existing claims applications MCP-ready, enabling LLM-driven tooling and automated workflows on top of internal services.',
+    ],
+    tags: ['React', 'TypeScript', 'Spring Boot', 'C#', 'ML pipeline', 'MCP'],
+  },
+  {
+    company: 'University of Maryland',
+    role: 'Engineering Lab / Lecture Teaching Fellow',
+    period: 'August 2021 – May 2024',
+    bullets: [
+      'Mentored 40 students per semester building autonomous vehicles for five mission-specific challenges; supported lectures for a course of 300 students.',
+      'Designed and fabricated a family of 10 modular rovers capable of completing randomized obstacle courses via an overhead-camera tracking system, and rebuilt the Python-based vision pipeline for ArUco-marker tracking.',
+      'Authored 2 new ML modules on Nvidia Jetson Nano, including lecture content and a graded assignment, introducing ML fundamentals into the core curriculum.',
+    ],
+    tags: ['Python', 'Computer vision', 'Jetson Nano', 'Robotics', 'Teaching'],
+  },
+  {
+    company: 'Bechtel',
+    role: 'Startup Engineering Intern',
+    period: 'June 2023 – August 2023',
+    bullets: [
+      "Built 10 training videos and tooling support for Hexagon's smart completions tool used across active project sites.",
+      'Analyzed 30,000+ rows of SQL-backed completions data; fixed a Microsoft PowerApps data-import bug that improved end-to-end performance by ~3 minutes per run.',
+    ],
+    tags: ['SQL', 'PowerApps', 'Hexagon'],
+  },
+  {
+    company: 'Bechtel',
+    role: 'Data Management Intern',
+    period: 'June 2022 – August 2022',
+    bullets: [
+      'Built a Python (scikit-learn) classifier with locality-sensitive hashing to map incoming records to 18,000 government HTS codes, achieving 80% accuracy on historical data.',
+    ],
+    tags: ['Python', 'Scikit-learn', 'LSH', 'ML'],
+  },
+]
+
 export const education: EducationItem[] = [
+  {
+    school: 'Johns Hopkins University',
+    location: 'Whiting School of Engineering',
+    degree: 'M.S. Robotics and Autonomous Systems',
+    graduation: 'May 2029',
+  },
   {
     school: 'University of Maryland',
     location: 'College Park, MD',
@@ -77,62 +140,9 @@ export const education: EducationItem[] = [
   },
 ]
 
-export const experience: ExperienceItem[] = [
-  {
-    company: 'Geico',
-    role: 'Software Engineer',
-    period: 'July 2024 – Present',
-    bullets: [
-      'Led the implementation of a new React + Spring vehicle damage intake application embedded within a C# host application receiving more than 40,000 requests per day.',
-      'Fed damages data to a predictive machine learning algorithm outputting estimated monetary loss.',
-      'Fixed over 15 development and production bugs, leading to a significant decrease in application exceptions and increasing reliability.',
-      'Led the overhaul of a shop selection and appointment reservation feature, switching from legacy ATLAS data to the vendor Entegral by Enterprise.',
-      'Developed over 35 features to implement functionality for Damages and Scheduling applications in Claims.',
-      'Utilized an AI-first approach to make current applications MCP ready.',
-    ],
-    tags: ['React', 'Spring Boot', 'C#', 'ML', 'MCP'],
-  },
-  {
-    company: 'University of Maryland',
-    role: 'Engineering Lab / Lecture Teaching Fellow',
-    period: 'August 2021 – May 2024',
-    bullets: [
-      'Guided 40 students during the lab section of the course as they built a purpose-specific autonomous vehicle for one of five challenges.',
-      'Fabricated a family of 10 modular rovers that complete randomized obstacle courses using an overhead camera.',
-      'Revamped a Python-based vision system for coordinate tracking of bots using ArUco markers.',
-      'Pioneered 2 Machine Learning modules using the Nvidia Jetson Nano. Conducted an immersive lecture and formulated a targeted homework task to elevate ML awareness in engineering for 300 students.',
-      'Assisted the professor during lecture and hands-on activities with Nvidia Jetsons, Fusion CAD, and Arduino.',
-    ],
-    tags: ['Python', 'Computer Vision', 'Jetson Nano', 'Arduino', 'Teaching'],
-  },
-  {
-    company: 'Bechtel',
-    role: 'Startup Engineering Intern',
-    period: 'June 2023 – August 2023',
-    bullets: [
-      'Applied the engineering process for managing and maintaining Bechtel project sites using in-house Hexagon and Oracle based applications.',
-      "Created 10 videos for training material on the application of Hexagon's smart completion tool.",
-      'Analyzed 30,000 rows of data stored in the SQL database used by the smart completions tools.',
-      'Fixed a bug in the Microsoft PowerApps implementation of the smart completions tool caused by how the SQL data was imported into the application, improving performance by 3 minutes.',
-    ],
-    tags: ['SQL', 'PowerApps', 'Hexagon', 'Oracle'],
-  },
-  {
-    company: 'Bechtel',
-    role: 'Data Management Intern',
-    period: 'June 2022 – August 2022',
-    bullets: [
-      'Utilized machine learning and locality-sensitive hashing techniques to group new data and map it to 18,000 government HTS codes.',
-      "Developed, implemented, and trained a machine learning model using Python's Scikit library to complete data analysis and processing of HTS codes. The model achieved 80% accuracy on pre-existing data.",
-      "Conducted in-depth interviews with members of the IS&T department to gain insights into information management, data flow, project IT, drone usage, digital twins, and the role of Hexagon's suite of tools in the engineering process.",
-    ],
-    tags: ['Python', 'Scikit-learn', 'LSH', 'ML'],
-  },
-]
-
-// Add new projects here — they'll automatically render on the Projects tab.
+// Add new projects here — they render on the Projects tab and get their own
+// waystone in the desert.
 export const projects: ProjectItem[] = [
-  // Example placeholder — replace or remove.
   // {
   //   name: 'Project name',
   //   description: 'Short blurb describing what it is and why it matters.',
@@ -146,14 +156,14 @@ export const projects: ProjectItem[] = [
 export const skills: SkillGroup[] = [
   {
     category: 'Languages',
-    items: ['Java', 'JavaScript', 'TypeScript', 'C++', 'C#', 'Python', 'MATLAB', 'x86', 'Racket'],
+    items: ['Java', 'C#', 'Python', 'TypeScript', 'MATLAB'],
   },
   {
-    category: 'Frameworks & Libraries',
+    category: 'Frameworks & libraries',
     items: ['Spring Boot', 'React', 'Flutter', 'PyTorch', 'Scikit-learn', 'Arduino'],
   },
   {
-    category: 'Tools & Platforms',
-    items: ['Cursor', 'Git', 'SQL', 'Hexagon', 'Oracle', 'PowerApps'],
+    category: 'Platforms & tools',
+    items: ['Azure', 'CI/CD', 'MCP', 'SQL', 'PowerApps', 'Jetson Nano', 'Cursor'],
   },
 ]

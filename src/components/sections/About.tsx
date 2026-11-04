@@ -7,10 +7,11 @@ export default function About() {
   return (
     <div className="section about-section">
       <p className="lead">
-        Hi, I'm {profile.name.split(' ')[0]}. I'm a software engineer who enjoys
-        shipping reliable, AI-forward products. Most recently I've been working on
-        large React + Spring applications that handle tens of thousands of
-        requests per day.
+        Hi, I'm {profile.name.split(' ')[0]}. I'm a software engineer at{' '}
+        {currentRole.company}, where I lead the Flutter re-platforming of a
+        claims frontend and build AI-first tooling on top of our services. I'm
+        also pursuing an M.S. in Robotics and Autonomous Systems at Johns
+        Hopkins.
       </p>
 
       <div className="quick-grid">
@@ -23,13 +24,14 @@ export default function About() {
           <span className="quick-label">Education</span>
           <span className="quick-value">{school.degree}</span>
           <span className="quick-sub">
-            {school.school} · GPA {school.gpa}
+            {school.school}
+            {school.gpa ? ` · GPA ${school.gpa}` : ` · ${school.graduation}`}
           </span>
         </div>
         <div className="quick-card">
           <span className="quick-label">Focus</span>
-          <span className="quick-value">Full-stack + ML</span>
-          <span className="quick-sub">React · Spring · Python</span>
+          <span className="quick-value">Frontend platforms + ML</span>
+          <span className="quick-sub">Flutter · React · Spring · Python</span>
         </div>
       </div>
     </div>
