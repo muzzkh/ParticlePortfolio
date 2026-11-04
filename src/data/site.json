@@ -1,0 +1,231 @@
+{
+  "version": 1,
+  "profile": {
+    "name": "Muzzamil Khan",
+    "title": "Software Engineer",
+    "headline": "Computer Engineer",
+    "tagline": "Computer Engineer building reliable, AI-forward software at scale.",
+    "links": [
+      {
+        "label": "muzzkprof@gmail.com",
+        "href": "mailto:muzzkprof@gmail.com",
+        "icon": "mail"
+      },
+      {
+        "label": "linkedin.com/in/muzzamil-khan",
+        "href": "https://linkedin.com/in/muzzamil-khan/",
+        "icon": "linkedin"
+      }
+    ]
+  },
+  "site": {
+    "pdf": "Muzzamil_Khan_Resume.pdf"
+  },
+  "world": {
+    "seed": 12345,
+    "time": 16.9
+  },
+  "entries": [
+    {
+      "id": "geico-software-engineer-ii",
+      "kind": "experience",
+      "title": "Software Engineer II",
+      "org": "Geico",
+      "period": "February 2026 – Present",
+      "location": "",
+      "bullets": [
+        "Led the end-to-end re-platforming of a legacy claims frontend in Flutter, owning the system architecture, technical RFC, and multi-quarter delivery roadmap adopted across the team.",
+        "Designed and rolled out an Azure Blob Storage–based deployment strategy, cutting cumulative passive build/deploy time by 300+ hours per year and unblocking parallel release trains.",
+        "Shipped 80+ features using an AI-first approach for the inaugural release, scaling the platform from pilot to four states with zero P1 incidents at launch.",
+        "Established frontend engineering standards (component architecture, state management, CI/CD) that the broader team has adopted as the baseline for new Flutter work."
+      ],
+      "tags": [
+        "Flutter",
+        "Azure Blob Storage",
+        "CI/CD",
+        "System design",
+        "AI-first"
+      ],
+      "tagsLabel": "Stack"
+    },
+    {
+      "id": "geico-software-engineer-i",
+      "kind": "experience",
+      "title": "Software Engineer I",
+      "org": "Geico",
+      "period": "July 2024 – February 2026",
+      "location": "",
+      "bullets": [
+        "Led implementation of a React + TypeScript / Spring Boot vehicle damage intake application embedded in a C# host serving 40,000+ requests per day, owning API contracts, component design, and rollout.",
+        "Integrated structured damage data into a predictive ML pipeline that outputs estimated monetary loss per claim, directly informing downstream adjuster workflows.",
+        "Led the overhaul of the shop selection and appointment reservation flow, migrating from legacy ATLAS data to the Entegral (Enterprise) vendor integration, modernizing the data contract and reducing brittle legacy coupling.",
+        "Delivered 35+ features across the Damages and Scheduling claims applications and resolved 15+ production and pre-prod defects, materially reducing exception rates and improving reliability.",
+        "Drove an AI-first initiative to make existing claims applications MCP-ready, enabling LLM-driven tooling and automated workflows on top of internal services."
+      ],
+      "tags": [
+        "React",
+        "TypeScript",
+        "Spring Boot",
+        "C#",
+        "ML pipeline",
+        "MCP"
+      ],
+      "tagsLabel": "Stack"
+    },
+    {
+      "id": "university-of-maryland-engineering-lab-lecture-teaching-fellow",
+      "kind": "experience",
+      "title": "Engineering Lab / Lecture Teaching Fellow",
+      "org": "University of Maryland",
+      "period": "August 2021 – May 2024",
+      "location": "",
+      "bullets": [
+        "Mentored 40 students per semester building autonomous vehicles for five mission-specific challenges; supported lectures for a course of 300 students.",
+        "Designed and fabricated a family of 10 modular rovers capable of completing randomized obstacle courses via an overhead-camera tracking system, and rebuilt the Python-based vision pipeline for ArUco-marker tracking.",
+        "Authored 2 new ML modules on Nvidia Jetson Nano, including lecture content and a graded assignment, introducing ML fundamentals into the core curriculum."
+      ],
+      "tags": [
+        "Python",
+        "Computer vision",
+        "Jetson Nano",
+        "Robotics",
+        "Teaching"
+      ],
+      "tagsLabel": "Stack"
+    },
+    {
+      "id": "bechtel-startup-engineering-intern",
+      "kind": "experience",
+      "title": "Startup Engineering Intern",
+      "org": "Bechtel",
+      "period": "June 2023 – August 2023",
+      "location": "",
+      "bullets": [
+        "Built 10 training videos and tooling support for Hexagon's smart completions tool used across active project sites.",
+        "Analyzed 30,000+ rows of SQL-backed completions data; fixed a Microsoft PowerApps data-import bug that improved end-to-end performance by ~3 minutes per run."
+      ],
+      "tags": [
+        "SQL",
+        "PowerApps",
+        "Hexagon"
+      ],
+      "tagsLabel": "Stack"
+    },
+    {
+      "id": "bechtel-data-management-intern",
+      "kind": "experience",
+      "title": "Data Management Intern",
+      "org": "Bechtel",
+      "period": "June 2022 – August 2022",
+      "location": "",
+      "bullets": [
+        "Built a Python (scikit-learn) classifier with locality-sensitive hashing to map incoming records to 18,000 government HTS codes, achieving 80% accuracy on historical data."
+      ],
+      "tags": [
+        "Python",
+        "Scikit-learn",
+        "LSH",
+        "ML"
+      ],
+      "tagsLabel": "Stack"
+    },
+    {
+      "id": "johns-hopkins-university-m-s-robotics-and-autonomous-systems",
+      "kind": "education",
+      "title": "M.S. Robotics and Autonomous Systems",
+      "org": "Johns Hopkins University",
+      "period": "Graduation · May 2029",
+      "location": "Whiting School of Engineering"
+    },
+    {
+      "id": "university-of-maryland-b-s-computer-engineering",
+      "kind": "education",
+      "title": "B.S. Computer Engineering",
+      "org": "University of Maryland",
+      "period": "Graduation · May 2024",
+      "location": "College Park, MD",
+      "facts": [
+        [
+          "GPA",
+          "3.7"
+        ]
+      ],
+      "tags": [
+        "Foundations of ML",
+        "Circuit Design",
+        "Digital Logic",
+        "Discrete Signals",
+        "Computer Security",
+        "Reverse Engineering",
+        "Data Analysis",
+        "Computer Architecture",
+        "Operating Systems",
+        "Software Engineering"
+      ],
+      "tagsLabel": "Relevant coursework"
+    },
+    {
+      "id": "project-ornithopter",
+      "kind": "project",
+      "title": "Ornithopter",
+      "org": "Project",
+      "status": "In progress",
+      "summary": "A flying, flapping-wing ornithopter inspired by the ones in Dune. (Placeholder: the full write-up is coming soon.)",
+      "bullets": [
+        "Placeholder: what it is and why I am building it.",
+        "Placeholder: how the wings, airframe and flight controller work.",
+        "Placeholder: where it is now, test flights, and what comes next."
+      ],
+      "tags": [],
+      "tagsLabel": "Stack",
+      "model": {
+        "type": "ornithopter",
+        "scale": 1,
+        "yaw": 0,
+        "y": 0,
+        "lift": true
+      }
+    },
+    {
+      "id": "skills",
+      "kind": "skills",
+      "title": "Skills",
+      "org": "Toolkit",
+      "groups": [
+        {
+          "category": "Languages",
+          "items": [
+            "Java",
+            "C#",
+            "Python",
+            "TypeScript",
+            "MATLAB"
+          ]
+        },
+        {
+          "category": "Frameworks & libraries",
+          "items": [
+            "Spring Boot",
+            "React",
+            "Flutter",
+            "PyTorch",
+            "Scikit-learn",
+            "Arduino"
+          ]
+        },
+        {
+          "category": "Platforms & tools",
+          "items": [
+            "Azure",
+            "CI/CD",
+            "MCP",
+            "SQL",
+            "PowerApps",
+            "Jetson Nano",
+            "Cursor"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -988,6 +988,138 @@ body.reading .panel {
   pointer-events: none;
 }
 
+/* formatted text and images in a dossier */
+.ds-cover {
+  margin: 0 0 16px;
+}
+.ds-cover img,
+.ds-rich img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+.ds-rich {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+.ds-rich > * {
+  margin: 0;
+}
+.ds-rich h1,
+.ds-rich h2,
+.ds-rich h3,
+.ds-rich h4 {
+  margin-top: 6px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.15;
+  color: #fff3e2;
+}
+.ds-rich h1 {
+  font-size: 24px;
+}
+.ds-rich h2 {
+  font-size: 21px;
+}
+.ds-rich h3,
+.ds-rich h4 {
+  font-size: 18px;
+}
+.ds-rich ul,
+.ds-rich ol {
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+.ds-rich li::marker {
+  color: var(--k, var(--spice));
+}
+.ds-rich a {
+  color: #ffc48a;
+}
+.ds-rich blockquote {
+  padding: 4px 0 4px 14px;
+  border-left: 2px solid var(--k, var(--spice));
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--ink-dim);
+}
+.ds-rich code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(255, 230, 200, 0.1);
+  font-size: 0.92em;
+}
+.ds-rich pre {
+  overflow-x: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+}
+.ds-rich pre code {
+  padding: 0;
+  background: none;
+}
+.ds-rich hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.ds-rich table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ds-rich th,
+.ds-rich td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.ds-lede {
+  margin: 0 0 12px;
+}
+
+/* the placement editor (index.html?edit inside /management) */
+body.editing .codex,
+body.editing .panel,
+body.editing .rhythm,
+body.editing .keys,
+body.editing .brand,
+body.editing #toast,
+body.editing #wormsign {
+  display: none;
+}
+body.editing .wl {
+  pointer-events: none;
+}
+.edit-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font: 600 10.5px var(--ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.edit-label.start {
+  background: rgba(20, 60, 55, 0.75);
+  color: #bff3ea;
+}
+.edit-label.frame {
+  background: rgba(22, 12, 6, 0.55);
+  color: var(--ink-dim);
+}
+body:not(.editing) .edit-label {
+  display: none;
+}
+
 /* labels floating over the stones */
 #labels {
   position: absolute;
@@ -1560,4 +1692,31 @@ body.reading .panel {
   #intro::after {
     animation: none;
   }
+}
+
+/* in the editor's narrow world pane, the card stays low so the selection (kept in the
+   middle of the view) can still be grabbed */
+@media (max-width: 760px) {
+  body.editing .dossier {
+    max-height: 40vh;
+  }
+}
+
+/* ?preview from /management */
+.preview-chip {
+  position: fixed;
+  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(110, 230, 210, 0.45);
+  background: rgba(10, 30, 30, 0.72);
+  color: #bff5ea;
+  font: 600 11px/1.2 'Barlow', system-ui, sans-serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
 }

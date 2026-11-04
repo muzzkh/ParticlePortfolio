@@ -3,10 +3,11 @@
 #
 #   scripts/sync-desert.sh [path-to-arrakis-checkout]   (default: ../arrakis)
 #
-# Copies arrakis/src into src/desert, arrakis/index.html to ./index.html and the
-# desert's favicon into public/. (The resume PDF in public/ is managed here.)
-# src/desert/resume/content.js is kept: here it re-exports src/data/resume.ts,
-# so the live site's resume is edited there.
+# Copies arrakis/src into src/desert, arrakis/index.html to ./index.html,
+# arrakis/management/index.html to ./management/index.html and the desert's favicon
+# into public/. (The résumé PDF and everything added at /management live in public/
+# here.) src/desert/resume/content.js is kept: here it points the desert at
+# src/data/site.json and tells /management to publish to this repository.
 set -euo pipefail
 
 SRC="${1:-../arrakis}"
@@ -26,8 +27,12 @@ rm -rf "$DEST"
 mkdir -p "$DEST"
 cp -R "$SRC/src/." "$DEST/"
 cp "$keep" "$DEST/resume/content.js"
+# arrakis's own copy of the content; this site's is src/data/site.json
+rm -f "$DEST/resume/site.json"
 
 sed -e 's#\./src/#./src/desert/#g' "$SRC/index.html" > "$ROOT/index.html"
+mkdir -p "$ROOT/management"
+sed -e 's#\.\./src/#../src/desert/#g' "$SRC/management/index.html" > "$ROOT/management/index.html"
 cp "$SRC/public/waystone.svg" "$ROOT/public/waystone.svg"
 
 echo "Synced the desert from $SRC ($(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo 'unknown rev'))"

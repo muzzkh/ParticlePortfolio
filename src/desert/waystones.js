@@ -4,6 +4,9 @@ import { makeRockGeometry } from './rocks.js';
 import { PT } from './particles.js';
 import { STAMP } from './trails.js';
 import { Ornithopter, CargoPod } from './ornithopter.js';
+import { GlbModel } from './models.js';
+
+const DEG = Math.PI / 180;
 
 // Waystones: basalt monoliths standing on bedrock, one per chapter of the resume.
 // They are laid out as a meandering road leading away from where the walker starts,
@@ -54,6 +57,11 @@ function mulberry32(a) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+function hashString(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+  return h >>> 0;
 }
 function smoothstep(e0, e1, x) {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
@@ -240,6 +248,8 @@ export class Waystones {
   _build(entry, index, rng) {
     const kind = GLOW[entry.kind] ? entry.kind : 'experience';
     const root = new THREE.Group();
+    const scale = entry.scale || 1;
+    root.scale.setScalar(scale);
     const h = STONE_H * (index === 0 ? 1.12 : 0.92 + rng() * 0.16);
     const body = new THREE.Mesh(monolithGeometry(rng, STONE_W, h, STONE_D), this.stoneMat);
     body.castShadow = true;
@@ -299,8 +309,10 @@ export class Waystones {
       shaftMat,
       glyphMat,
       pebbles,
-      radius: PLINTH_R, // solid: the walker can't pass inside this
-      wake: WAKE_RADIUS, // within this the stone opens its dossier
+      scale,
+      radius: PLINTH_R * scale, // solid: the walker can't pass inside this
+      wake: WAKE_RADIUS + (scale - 1) * 1.5, // within this the stone opens its dossier
+      autoRot: (rng() - 0.5) * 0.6,
       x: 0,
       z: 0,
       y: 0,
@@ -353,9 +365,11 @@ export class Waystones {
       root.add(post, bulb);
       bulbs.push(mat);
     }
-    const model = entry.model === 'ornithopter' ? new Ornithopter() : new CargoPod();
-    model.root.position.y = PAD_TOP;
-    model.yaw = rng() * Math.PI * 2;
+    const m = entry.model || { type: 'pod', scale: 1, yaw: 0, y: 0, lift: true };
+    const model = m.type === 'ornithopter' ? new Ornithopter() : m.type === 'glb' && m.src ? new GlbModel(m.src, { lift: m.lift }) : new CargoPod();
+    model.root.scale.setScalar(m.scale);
+    model.root.position.y = PAD_TOP + m.y;
+    model.yaw = m.yaw * DEG;
     model.root.rotation.y = model.yaw;
     root.add(model.root);
     this.group.add(root);
@@ -366,9 +380,13 @@ export class Waystones {
       h: model.height,
       root,
       model,
+      modelScale: m.scale,
+      canLift: m.lift,
       lineMat,
       bulbs,
       lift: 0,
+      scale: 1,
+      autoRot: 0,
       radius: PAD_R + 0.15,
       wake: PAD_R + 2.6,
       x: 0,
@@ -392,10 +410,20 @@ export class Waystones {
   layout(sx, sz, heading, blocked) {
     const seed = getSeed();
     const rng = mulberry32((Math.floor(seed.x * 31 + seed.z * 17) ^ 0x9e3779b9) >>> 0);
+    this.spawn = { x: sx, z: sz };
     const placed = [];
-    const road = this.stones.filter((s) => s.kind !== 'project');
-    const pads = this.stones.filter((s) => s.kind === 'project');
-    this._path(road, sx, sz, heading, FIRST, SPACING, 3.2, 7.5, 0, placed, blocked, rng, (s, x, z) => this._place(s, x, z, rng));
+    // sites placed by hand go exactly where they were put; the paths flow around them
+    for (const s of this.stones) {
+      if (!s.entry.place) continue;
+      const x = sx + s.entry.place.dx;
+      const z = sz + s.entry.place.dz;
+      placed.push({ x, z });
+      if (s.kind === 'project') this._placePad(s, x, z);
+      else this._place(s, x, z);
+    }
+    const road = this.stones.filter((s) => s.kind !== 'project' && !s.entry.place);
+    const pads = this.stones.filter((s) => s.kind === 'project' && !s.entry.place);
+    this._path(road, sx, sz, heading, FIRST, SPACING, 3.2, 7.5, 0, placed, blocked, rng, (s, x, z) => this._place(s, x, z));
     this._path(pads, sx, sz, heading + Math.PI, PAD_FIRST, PAD_SPACING, PAD_R + 2, 11, 3, placed, blocked, rng, (s, x, z) => this._placePad(s, x, z));
   }
 
@@ -415,26 +443,29 @@ export class Waystones {
         dir += bend + (rng() - 0.5) * 0.35;
       }
       const step = i === 0 ? first : spacing;
-      const tx = x + Math.cos(dir) * step;
-      const tz = z + Math.sin(dir) * step;
       let best = null;
-      for (let ring = 0; ring <= 3; ring++) {
-        const n = ring === 0 ? 1 : 10;
-        for (let k = 0; k < n; k++) {
-          const a = (k / n) * Math.PI * 2 + ring * 0.4;
-          const cx = tx + Math.cos(a) * ring * 1.6;
-          const cz = tz + Math.sin(a) * ring * 1.6;
-          groundGradient(cx, cz, g);
-          let score = Math.hypot(g.x, g.z) * (1 + flatWeight) + ring * 0.06;
-          if (flatWeight) {
-            // pads are wide: also check the slope across their footprint
-            const hs = [0, 1, 2, 3].map((q) => terrainHeight(cx + Math.cos(q * 1.571) * PAD_R, cz + Math.sin(q * 1.571) * PAD_R));
-            score += (Math.max(...hs) - Math.min(...hs)) * 0.4;
+      // when the spot is taken (a stone placed by hand, rock), look further along
+      for (let push = 0; push < 6 && (!best || best.score >= 10); push++) {
+        const tx = x + Math.cos(dir) * (step + push * apart * 0.6);
+        const tz = z + Math.sin(dir) * (step + push * apart * 0.6);
+        for (let ring = 0; ring <= 3; ring++) {
+          const n = ring === 0 ? 1 : 10;
+          for (let k = 0; k < n; k++) {
+            const a = (k / n) * Math.PI * 2 + ring * 0.4;
+            const cx = tx + Math.cos(a) * ring * 1.6;
+            const cz = tz + Math.sin(a) * ring * 1.6;
+            groundGradient(cx, cz, g);
+            let score = Math.hypot(g.x, g.z) * (1 + flatWeight) + ring * 0.06;
+            if (flatWeight) {
+              // pads are wide: also check the slope across their footprint
+              const hs = [0, 1, 2, 3].map((q) => terrainHeight(cx + Math.cos(q * 1.571) * PAD_R, cz + Math.sin(q * 1.571) * PAD_R));
+              score += (Math.max(...hs) - Math.min(...hs)) * 0.4;
+            }
+            if (blocked && blocked(cx, cz, rockMargin)) score += 10;
+            if (Math.hypot(cx - sx, cz - sz) < 6) score += 10;
+            for (const p of placed) if (Math.hypot(cx - p.x, cz - p.z) < apart) score += 10;
+            if (!best || score < best.score) best = { x: cx, z: cz, score };
           }
-          if (blocked && blocked(cx, cz, rockMargin)) score += 10;
-          if (Math.hypot(cx - sx, cz - sz) < 6) score += 10;
-          for (const p of placed) if (Math.hypot(cx - p.x, cz - p.z) < apart) score += 10;
-          if (!best || score < best.score) best = { x: cx, z: cz, score };
         }
       }
       dir = Math.atan2(best.z - pz, best.x - px);
@@ -445,7 +476,9 @@ export class Waystones {
     });
   }
 
-  _place(s, x, z, rng) {
+  _place(s, x, z) {
+    // pebbles from the entry's own seed, so they stay put when the stone moves
+    const rng = mulberry32(hashString(s.entry.id));
     let minH = terrainHeight(x, z);
     for (let k = 0; k < 10; k++) {
       const a = (k / 10) * Math.PI * 2;
@@ -454,11 +487,11 @@ export class Waystones {
     s.x = x;
     s.z = z;
     s.y = minH;
-    // face the default camera, give or take
-    s.root.position.set(x, minH - 0.3, z);
-    s.root.rotation.y = (rng() - 0.5) * 0.6;
+    // face the default camera, give or take, unless turned by hand
+    s.root.position.set(x, minH - 0.3 * s.scale, z);
+    s.root.rotation.y = s.entry.place ? s.entry.place.rot * DEG : s.autoRot;
     s.root.children[0].position.y = 0.32;
-    s.shaft.position.set(x, minH + s.h * 0.55, z);
+    s.shaft.position.set(x, minH + s.h * 0.55 * s.scale, z);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const e = new THREE.Euler();
@@ -496,12 +529,48 @@ export class Waystones {
     s.z = z;
     s.y = base;
     s.root.position.set(x, base, z);
+    s.root.rotation.y = s.entry.place ? s.entry.place.rot * DEG : 0;
+  }
+
+  // ---- editing: move and turn sites live, find the one under the pointer ----
+  moveSite(s, x, z) {
+    if (s.kind === 'project') this._placePad(s, x, z);
+    else this._place(s, x, z);
+  }
+
+  turnSite(s, deg) {
+    s.root.rotation.y = deg * DEG;
+  }
+
+  siteRotation(s) {
+    return Math.round(((s.root.rotation.y / DEG) % 360) * 10) / 10;
+  }
+
+  siteOf(object) {
+    for (let o = object; o; o = o.parent) {
+      const s = this.stones.find((st) => st.root === o);
+      if (s) return s;
+    }
+    return null;
+  }
+
+  dispose() {
+    this.scene.remove(this.group);
+    this.group.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+      for (const m of mats) {
+        if (m.map) m.map.dispose();
+        m.dispose();
+      }
+    });
+    for (const s of this.stones) if (s.model && s.model.dispose) s.model.dispose();
   }
 
   // world-space point just above the stone (or the craft on its pad), for HUD labels
   anchor(s, out) {
-    if (s.kind === 'project') return out.set(s.x, s.y + PAD_TOP + s.model.height + 0.5, s.z);
-    return out.set(s.x, s.y + s.h + 0.9, s.z);
+    if (s.kind === 'project') return out.set(s.x, s.y + PAD_TOP + s.model.height * s.modelScale + 0.5, s.z);
+    return out.set(s.x, s.y + s.h * s.scale + 0.9, s.z);
   }
 
   // where to stand to read the stone, coming from (fx, fz)
@@ -638,7 +707,7 @@ export class Waystones {
   // The craft lifts off as the walker comes near, hovers facing them, and settles back
   // when they leave. Beacons breathe around the rim (smoothly: nothing blinks).
   _updatePad(s, dt, t, d, selected, inView, px, pz, particles, tint) {
-    const want = d < 11 ? 1 : 0;
+    const want = s.canLift && d < 11 ? 1 : 0;
     s.lift += (want - s.lift) * (1 - Math.exp(-dt * (want > s.lift ? 0.8 : 0.5)));
     if (s.lift < 1e-3) s.lift = 0;
     s.model.update(dt, t, s.lift, Math.atan2(px - s.x, pz - s.z));

@@ -12,8 +12,10 @@ import { createPost } from './post.js';
 import { UI } from './ui.js';
 import { Waystones, SAFE_MARGIN } from './waystones.js';
 import { Codex, contactLinks } from './codex.js';
-import { buildWaystones } from './resume/normalize.js';
-import * as resume from './resume/content.js';
+import { prepareEntries } from './resume/normalize.js';
+import initialSite from './resume/content.js';
+import { setAssetOverrides } from './assets.js';
+import { createEditMode } from './editmode.js';
 import { Arcade } from './arcade/arcade.js';
 import { Atomics, LaunchKey, strikeTargets } from './atomics.js';
 import { LaunchPad } from './launchpad.js';
@@ -27,19 +29,22 @@ try {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
 } catch (err) {
   // No WebGL: send readers to the plain résumé if there is one, otherwise say why.
-  if (resume.site.plain) {
-    window.location.replace(resume.site.plain);
+  if (initialSite.site && initialSite.site.plain) {
+    window.location.replace(initialSite.site.plain);
   } else {
     const lede = document.getElementById('introLede');
     lede.textContent = 'This résumé is an interactive desert, and your browser could not start WebGL. The PDF below has everything.';
     document.querySelector('.intro-actions').remove();
     document.querySelector('.intro-keys').remove();
-    document.getElementById('introLinks').append(...contactLinks(resume));
+    document.getElementById('introLinks').append(...contactLinks({ profile: initialSite.profile, site: initialSite.site || {} }));
     document.body.classList.add('ready');
   }
   throw err;
 }
 const params = new URLSearchParams(window.location.search);
+// ?edit: the placement editor that /management embeds (no intro, no walker, free camera)
+const EDIT = params.has('edit');
+let editor = null; // set at the end of boot in edit mode
 const lockedPR = params.has('pr') ? THREE.MathUtils.clamp(parseFloat(params.get('pr')) || 1, 0.5, 3) : null;
 const MAX_PR = Math.min(window.devicePixelRatio || 1, 1.75);
 let pixelRatio = lockedPR ?? Math.min(MAX_PR, 1.5);
@@ -62,8 +67,23 @@ scene.add(player.root);
 const particles = new Particles(16000);
 scene.add(particles.points);
 const worm = new Sandworm(scene);
-const entries = buildWaystones(resume);
-const waystones = new Waystones(scene, entries);
+// ?preview: the unpublished content /management hands over (through this browser's
+// storage) so it can be walked as a visitor would before publishing
+function previewContent() {
+  if (!params.has('preview')) return null;
+  try {
+    const p = JSON.parse(localStorage.getItem('arrakis.preview'));
+    if (!p || !p.site || !p.site.profile || !Array.isArray(p.site.entries)) return null;
+    setAssetOverrides(new Map(p.overrides || []));
+    return p.site;
+  } catch {
+    return null;
+  }
+}
+const previewSite = previewContent();
+let site = previewSite || initialSite;
+let entries = prepareEntries(site);
+let waystones = new Waystones(scene, entries);
 const audio = new DesertAudio();
 const post = createPost(renderer, scene, camera);
 post.setSize(window.innerWidth, window.innerHeight, pixelRatio);
@@ -172,22 +192,25 @@ function enterDesert() {
 // Resume: waystones in the world, codex + dossier in the HUD
 // ---------------------------------------------------------------------------
 const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve'];
-document.getElementById('introName').textContent = resume.profile.name;
-document.getElementById('introTitle').textContent = resume.profile.headline || resume.profile.title;
-document.getElementById('wordmark').textContent = resume.profile.name;
-{
+function applyIntro() {
+  const profile = site.profile || {};
+  document.getElementById('introName').textContent = profile.name || '';
+  document.getElementById('introTitle').textContent = profile.headline || profile.title || '';
+  document.getElementById('wordmark').textContent = profile.name || '';
   const stones = entries.filter((e) => e.kind !== 'project').length;
   const pads = entries.length - stones;
   document.getElementById('introLede').textContent =
+    profile.intro ||
     `${NUMBER_WORDS[stones] ?? stones} waystones stand in the deep desert, one for every chapter of the road so far.` +
-    (pads ? ` The other way, ${pads > 1 ? 'landing pads hold' : 'a landing pad holds'} what I'm building now.` : '') +
-    ' Walk out and read them.';
+      (pads ? ` The other way, ${pads > 1 ? 'landing pads hold' : 'a landing pad holds'} what I'm building now.` : '') +
+      ' Walk out and read them.';
+  document.getElementById('introLinks').replaceChildren(...contactLinks({ profile, site: site.site || {} }));
 }
-document.getElementById('introLinks').append(...contactLinks(resume));
+applyIntro();
 
 const codex = new Codex({
-  profile: resume.profile,
-  site: resume.site,
+  profile: site.profile,
+  site: site.site || {},
   entries,
   handlers: {
     select: (id) => selectStone(id),
@@ -201,9 +224,30 @@ let suppressId = null; // closed by hand: don't reopen until the walker has left
 let nearId = null; // the stone the walker is standing at
 let finaleTimer = 0;
 
-function openStone(s, source) {
-  codex.open(s.entry, source);
+function openStone(s, source, force = false) {
+  codex.open(s.entry, source, force);
   waystones.selectedId = s.entry.id;
+}
+
+// Swap in new content (the management editor does this live): rebuild the stones and pads,
+// the index, labels and intro, and lay the world out again. Found stones stay found.
+function applyContent(next) {
+  site = next;
+  entries = prepareEntries(site);
+  const found = new Set(waystones.stones.filter((s) => s.found).map((s) => s.entry.id));
+  const selected = waystones.selectedId;
+  waystones.dispose();
+  waystones = new Waystones(scene, entries);
+  for (const s of waystones.stones) if (found.has(s.entry.id)) s.found = true;
+  waystones.selectedId = selected && waystones.byId(selected) ? selected : null;
+  travel = null;
+  nearId = null;
+  const seed = site.world && Number.isFinite(site.world.seed) ? site.world.seed >>> 0 : DEFAULT_SEED;
+  if (EDIT && seed !== seedValue) newWorld(seed);
+  else layoutRoad(spawnPoint.x, spawnPoint.z);
+  if (EDIT && site.world && Number.isFinite(site.world.time)) setTimeOfDay(site.world.time);
+  codex.setContent({ profile: site.profile, site: site.site || {}, entries });
+  applyIntro();
 }
 
 // Pick a stone from the codex, a label or prev/next: read it now, and walk over to it.
@@ -264,8 +308,8 @@ function arriveAt(s) {
 
 function updateWaystones(dt, t, vr) {
   const near = waystones.update(dt, t, {
-    px: player.pos.x,
-    pz: player.pos.z,
+    px: editor ? editor.focus.x : player.pos.x,
+    pz: editor ? editor.focus.z : player.pos.z,
     camYaw: cam.yaw,
     focusX: cam.focus.x,
     focusZ: cam.focus.z,
@@ -311,7 +355,9 @@ function finale() {
 // The road sets off toward the lower right of the starting view, which keeps the first
 // stone on screen on wide and tall screens alike; the project pads go the other way.
 const START_YAW = THREE.MathUtils.degToRad(12);
+let spawnPoint = { x: 0, z: 0 };
 function layoutRoad(x, z) {
+  spawnPoint = { x, z };
   // screen right = (cos yaw, -sin yaw), screen up = (-sin yaw, -cos yaw) on the ground
   const r = 0.45;
   const u = -0.89;
@@ -485,7 +531,8 @@ function updateCamera(dt, t) {
   cam.cine += (wantCine - cam.cine) * (1 - Math.exp(-dt * (wantCine > cam.cine ? 2.5 : 0.8)));
 
   const lead = 0.45;
-  _focusTarget.set(player.pos.x + player.vel.x * lead, player.bodyY + 0.2, player.pos.z + player.vel.z * lead);
+  if (editor) _focusTarget.copy(editor.focus);
+  else _focusTarget.set(player.pos.x + player.vel.x * lead, player.bodyY + 0.2, player.pos.z + player.vel.z * lead);
   let h = cam.heightTarget;
   if (cam.cine > 0.001) {
     const k = 0.5 * cam.cine;
@@ -499,7 +546,8 @@ function updateCamera(dt, t) {
   // pull back to the widest view while atomics are falling, so the strike is seen
   cam.strike += ((atomics.active ? 1 : 0) - cam.strike) * (1 - Math.exp(-dt * (atomics.active ? 1.5 : 0.6)));
   if (cam.strike > 0.001) h = Math.max(h, cam.heightTarget + (46 - cam.heightTarget) * cam.strike);
-  cam.focus.lerp(_focusTarget, 1 - Math.exp(-dt * 4));
+  if (editor) cam.focus.copy(_focusTarget);
+  else cam.focus.lerp(_focusTarget, 1 - Math.exp(-dt * 4));
   cam.height += (h - cam.height) * (1 - Math.exp(-dt * 3));
 
   camDir.set(Math.sin(cam.yaw) * Math.cos(cam.pitch), Math.sin(cam.pitch), Math.cos(cam.yaw) * Math.cos(cam.pitch));
@@ -542,7 +590,7 @@ function isTyping(e) {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (isTyping(e)) return;
+  if (EDIT || isTyping(e)) return;
   if (e.target && e.target.type === 'range' && e.code.startsWith('Arrow')) return;
   if (!entered && (e.code === 'Enter' || e.code === 'Space')) {
     e.preventDefault();
@@ -678,6 +726,7 @@ canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
+    if (EDIT) return; // the editor zooms further out
     cam.heightTarget = THREE.MathUtils.clamp(cam.heightTarget * Math.exp(e.deltaY * 0.0012), 9, 46);
   },
   { passive: false },
@@ -1121,7 +1170,7 @@ function adaptResolution(realDt) {
 // "New erg" (or a #seed link) leads to other worlds.
 const DEFAULT_SEED = 12345;
 const hashSeed = /seed=(\d+)/.exec(window.location.hash);
-applySeed(hashSeed ? parseInt(hashSeed[1], 10) : DEFAULT_SEED);
+applySeed(hashSeed ? parseInt(hashSeed[1], 10) : site.world && Number.isFinite(site.world.seed) ? site.world.seed >>> 0 : DEFAULT_SEED);
 {
   const s = findSpawn();
   player.spawn(s.x, s.z, 0.6);
@@ -1129,7 +1178,7 @@ applySeed(hashSeed ? parseInt(hashSeed[1], 10) : DEFAULT_SEED);
   layoutRoad(s.x, s.z);
   cam.focus.set(s.x, player.pos.y + 0.9, s.z);
 }
-setTimeOfDay(16.9);
+setTimeOfDay(site.world && Number.isFinite(site.world.time) ? site.world.time : 16.9);
 
 let last = performance.now();
 let simTime = 0;
@@ -1162,7 +1211,8 @@ function frame(now) {
 
   // ---- walker ----
   const inp = readInput(t);
-  player.update(dt, inp, {
+  if (!EDIT)
+    player.update(dt, inp, {
     wind: wind.vel,
     onRock,
     collide: (pos, r, vel) => {
@@ -1247,10 +1297,50 @@ function frame(now) {
   ui.update(dt, player.time, player.rhythm, player.regularity, player.sandwalk, wormInfo);
   ui.setTime(atmos.time);
   updateLabels();
+  if (editor) editor.update(dt, t);
   settleResolution(realDt);
   adaptResolution(realDt);
 }
 requestAnimationFrame(frame);
+
+// ---------------------------------------------------------------------------
+// Edit mode: the placement editor that /management embeds
+// ---------------------------------------------------------------------------
+if (EDIT) {
+  document.body.classList.add('editing');
+  ui.enter(); // shows the world and labels; `entered` stays false, so no worms and no walker
+  player.root.visible = false;
+  editor = createEditMode({
+    canvas,
+    camera,
+    scene,
+    cam,
+    pickGround,
+    startYaw: START_YAW,
+    getWaystones: () => waystones,
+    getSpawn: () => spawnPoint,
+    applyContent,
+    setTimeOfDay,
+    openCard: (id) => {
+      const s = waystones.byId(id);
+      if (s) openStone(s, 'codex', true);
+    },
+    closeCard: () => {
+      codex.close();
+      waystones.selectedId = null;
+    },
+  });
+  window.arrakisEditor = editor.api;
+  window.dispatchEvent(new Event('arrakis-editor-ready'));
+}
+
+if (previewSite) {
+  const chip = document.createElement('div');
+  chip.className = 'preview-chip';
+  chip.textContent = 'Preview · not published';
+  chip.title = 'You are looking at unpublished changes from /management. Visitors still see the live site.';
+  document.body.append(chip);
+}
 
 // expose for debugging in the console
 window.arrakis = {
@@ -1266,7 +1356,9 @@ window.arrakis = {
   cam,
   post,
   rocks,
-  waystones,
+  get waystones() {
+    return waystones;
+  },
   codex,
   newWorld,
   setTimeOfDay,

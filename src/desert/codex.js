@@ -2,6 +2,8 @@
 // you are reading, and labels that float over the stones in the world.
 
 import { KINDS } from './resume/normalize.js';
+import { assetUrl } from './assets.js';
+import { renderMarkdown } from './richtext.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -69,7 +71,7 @@ function shortLabel(link) {
 export function contactLinks({ profile, site }) {
   const out = [];
   for (const l of profile.links || []) out.push(linkItem(l.href, shortLabel(l), l.icon, l.label));
-  if (site.pdf) out.push(linkItem(site.pdf, 'PDF', 'pdf', 'Download the résumé as a PDF'));
+  if (site.pdf) out.push(linkItem(assetUrl(site.pdf), 'PDF', 'pdf', 'Download the résumé as a PDF'));
   if (site.plain) out.push(linkItem(site.plain, 'Plain', 'plain', 'A plain, text-first version of this résumé'));
   return out;
 }
@@ -90,9 +92,40 @@ export class Codex {
     this.body = $('codexBody');
     this.foundEl = $('codexFound');
     this.bar = $('codexBar');
-    $('codexTotal').textContent = String(entries.length);
     this.head.addEventListener('click', () => this.toggleCollapsed());
+    if (window.innerWidth <= 760) this.toggleCollapsed(true);
 
+    // ---------------- dossier ----------------
+    this.dossier = $('dossier');
+    this.ds = {
+      mark: $('dsMark'),
+      kind: $('dsKind'),
+      years: $('dsYears'),
+      title: $('dsTitle'),
+      org: $('dsOrg'),
+      period: $('dsPeriod'),
+      body: $('dsBody'),
+      pos: $('dsPos'),
+    };
+    $('dsClose').addEventListener('click', () => handlers.close());
+    $('dsPrev').addEventListener('click', () => handlers.step(-1));
+    $('dsNext').addEventListener('click', () => handlers.step(1));
+    for (const id of ['dsClose', 'dsPrev', 'dsNext']) $(id).addEventListener('mouseup', (e) => e.currentTarget.blur());
+
+    this.labelLayer = $('labels');
+    this.setContent({ profile, site, entries });
+  }
+
+  // (Re)build the index, labels and links from content. Stones already found stay found,
+  // and an open dossier is refreshed if its entry still exists.
+  setContent({ profile, site, entries }) {
+    this.entries = entries;
+    const handlers = this.handlers;
+    this.body.replaceChildren();
+    for (const l of this.labels.values()) l.el.remove();
+    this.items.clear();
+    this.labels.clear();
+    $('codexTotal').textContent = String(entries.length);
     const groups = new Map();
     for (const entry of entries) {
       if (!groups.has(entry.kind)) {
@@ -116,39 +149,29 @@ export class Codex {
       b.addEventListener('mouseup', () => b.blur());
       groups.get(entry.kind).append(b);
       this.items.set(entry.id, { button: b, arrow, dist, lastDist: -1, lastAngle: 99 });
-    }
-    $('codexLinks').append(...contactLinks({ profile, site }));
-    if (window.innerWidth <= 760) this.toggleCollapsed(true);
 
-    // ---------------- dossier ----------------
-    this.dossier = $('dossier');
-    this.ds = {
-      mark: $('dsMark'),
-      kind: $('dsKind'),
-      years: $('dsYears'),
-      title: $('dsTitle'),
-      org: $('dsOrg'),
-      period: $('dsPeriod'),
-      body: $('dsBody'),
-      pos: $('dsPos'),
-    };
-    $('dsClose').addEventListener('click', () => handlers.close());
-    $('dsPrev').addEventListener('click', () => handlers.step(-1));
-    $('dsNext').addEventListener('click', () => handlers.step(1));
-    for (const id of ['dsClose', 'dsPrev', 'dsNext']) $(id).addEventListener('mouseup', (e) => e.currentTarget.blur());
-
-    // ---------------- world labels ----------------
-    this.labelLayer = $('labels');
-    for (const entry of entries) {
-      const b = el('button', `wl kind-${entry.kind}`);
-      b.type = 'button';
-      b.tabIndex = -1;
+      const lb = el('button', `wl kind-${entry.kind}`);
+      lb.type = 'button';
+      lb.tabIndex = -1;
+      lb.dataset.id = entry.id;
       const top = el('span', 'wl-org');
       top.append(mark(entry.kind), el('span', null, [entry.org, entry.years].filter(Boolean).join(' · ')));
-      b.append(top, el('span', 'wl-title', entry.title));
-      b.addEventListener('click', () => handlers.select(entry.id));
-      this.labelLayer.append(b);
-      this.labels.set(entry.id, { el: b, x: 0, y: 0, a: -1 });
+      lb.append(top, el('span', 'wl-title', entry.title));
+      lb.addEventListener('click', () => handlers.select(entry.id));
+      this.labelLayer.append(lb);
+      this.labels.set(entry.id, { el: lb, x: 0, y: 0, a: -1 });
+    }
+    $('codexLinks').replaceChildren(...contactLinks({ profile, site }));
+    const kept = [...this.found].filter((id) => this.items.has(id));
+    this.found.clear();
+    this.foundEl.textContent = '0';
+    this.bar.style.width = '0%';
+    for (const id of kept) this.setFound(id);
+    const current = this.currentId;
+    if (current) {
+      const entry = entries.find((e) => e.id === current);
+      if (entry) this.open(entry, this.source, true);
+      else this.close();
     }
   }
 
@@ -162,10 +185,10 @@ export class Codex {
     return this.currentId !== null;
   }
 
-  open(entry, source) {
+  open(entry, source, force = false) {
     const i = this.entries.indexOf(entry);
     this.source = source;
-    if (this.currentId === entry.id) return;
+    if (this.currentId === entry.id && !force) return;
     this.currentId = entry.id;
     const d = this.ds;
     this.dossier.className = `dossier kind-${entry.kind}`;
@@ -179,6 +202,15 @@ export class Codex {
 
     const body = d.body;
     body.replaceChildren();
+    if (entry.cover) {
+      const fig = el('figure', 'ds-cover');
+      const img = el('img');
+      img.src = assetUrl(entry.cover);
+      img.alt = entry.coverAlt || '';
+      img.decoding = 'async';
+      fig.append(img);
+      body.append(fig);
+    }
     if (entry.facts && entry.facts.length) {
       const dl = el('dl', 'ds-facts');
       for (const [k, v] of entry.facts) dl.append(el('dt', null, k), el('dd', null, v));
@@ -189,6 +221,11 @@ export class Codex {
       const ul = el('ul', 'ds-bullets');
       for (const b of entry.bullets) ul.append(el('li', null, b));
       body.append(ul);
+    }
+    if (entry.body) {
+      const rich = el('div', 'ds-rich');
+      rich.append(renderMarkdown(entry.body));
+      body.append(rich);
     }
     if (entry.groups) {
       for (const g of entry.groups) {

@@ -1,4 +1,5 @@
-// Turns resume content into waystones: one standing stone per chapter of the road so far.
+// Turns site content (site.json) into the list of entries the desert shows: one waystone
+// per résumé chapter, a landing pad per project.
 
 // label: shown on a single entry; group: heading for the list in the codex
 export const KINDS = {
@@ -8,7 +9,9 @@ export const KINDS = {
   skills: { label: 'Toolkit', group: 'Toolkit', glyph: 'triangle' },
 };
 
-function slug(s) {
+export const MODEL_TYPES = ['ornithopter', 'pod', 'glb'];
+
+export function slug(s) {
   return String(s)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -20,77 +23,70 @@ export function yearSpan(period) {
   if (!period) return '';
   const years = String(period).match(/\d{4}/g) || [];
   const present = /present|now|current/i.test(period);
-  if (!years.length) return present ? 'Now' : period;
+  if (!years.length) return present ? 'Now' : '';
   const a = years[0];
   const b = present ? 'Now' : years[years.length - 1];
   return a === b ? a : `${a}–${b}`;
 }
 
-export function buildWaystones({ experience = [], education = [], projects = [], skills = [] }) {
-  const stones = [];
-  for (const e of experience) {
-    stones.push({
-      id: slug(`${e.company}-${e.role}`),
-      kind: 'experience',
-      org: e.company,
-      title: e.role,
-      period: e.period,
-      years: yearSpan(e.period),
+const list = (v) => (Array.isArray(v) ? v.filter((x) => x !== null && x !== undefined && x !== '') : []);
+const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+
+export function prepareEntries(site) {
+  const out = [];
+  for (const e of (site && site.entries) || []) {
+    if (!e || e.hidden || !e.id) continue;
+    const kind = KINDS[e.kind] ? e.kind : 'experience';
+    const project = kind === 'project';
+    const m = e.model || {};
+    out.push({
+      id: String(e.id),
+      kind,
+      title: e.title || 'Untitled',
+      org: e.org || (project ? 'Project' : ''),
+      period: e.period || '',
+      years: e.years || (project ? e.status || '' : yearSpan(e.period)),
       location: e.location || '',
-      bullets: e.bullets || [],
-      tags: e.tags || [],
-      tagsLabel: 'Stack',
+      lede: e.summary || '',
+      bullets: list(e.bullets),
+      body: e.body || '',
+      cover: e.cover || '',
+      coverAlt: e.coverAlt || '',
+      tags: list(e.tags),
+      tagsLabel: e.tagsLabel || (kind === 'education' ? 'Relevant coursework' : 'Stack'),
+      facts: list(e.facts).filter((f) => Array.isArray(f) && f[0]),
+      links: list(e.links).filter((l) => l && l.href),
+      groups: kind === 'skills' ? list(e.groups).filter((g) => g && g.category) : null,
+      model: project
+        ? {
+            type: MODEL_TYPES.includes(m.type) ? m.type : 'pod',
+            src: m.src || '',
+            scale: num(m.scale, 1),
+            yaw: num(m.yaw, 0), // degrees
+            y: num(m.y, 0),
+            lift: m.lift !== false,
+          }
+        : null,
+      // manual placement: offset from where visitors start, and a turn in degrees
+      place: e.place && Number.isFinite(e.place.dx) && Number.isFinite(e.place.dz) ? { dx: e.place.dx, dz: e.place.dz, rot: num(e.place.rot, 0) } : null,
+      scale: Math.max(0.3, Math.min(3, num(e.scale, 1))),
     });
   }
-  for (const e of education) {
-    const facts = [];
-    if (e.gpa) facts.push(['GPA', e.gpa]);
-    stones.push({
-      id: slug(`${e.school}-${e.degree}`),
-      kind: 'education',
-      org: e.school,
-      title: e.degree,
-      period: `Graduation · ${e.graduation}`,
-      years: yearSpan(e.graduation),
-      location: e.location || '',
-      facts,
-      bullets: e.notes || [],
-      tags: e.coursework || [],
-      tagsLabel: 'Relevant coursework',
-    });
+  return out;
+}
+
+// A fresh entry of the given kind, for the management editor.
+export function newEntry(kind, existingIds) {
+  const base = { experience: 'New role', education: 'New degree', project: 'New project', skills: 'Skills' }[kind] || 'New entry';
+  let id = slug(`${kind === 'project' ? 'project-' : ''}${base}`);
+  for (let i = 2; existingIds.has(id); i++) id = slug(`${kind === 'project' ? 'project-' : ''}${base}-${i}`);
+  const e = { id, kind, title: base, org: '', period: '', location: '', summary: '', bullets: [], body: '', tags: [] };
+  if (kind === 'project') {
+    e.org = 'Project';
+    e.status = 'In progress';
+    e.model = { type: 'pod', src: '', scale: 1, yaw: 0, y: 0, lift: true };
   }
-  for (const p of projects) {
-    const links = [];
-    if (p.href) links.push({ label: 'Visit', href: p.href });
-    if (p.repo) links.push({ label: 'Source', href: p.repo });
-    const bullets = p.bullets && p.bullets.length ? p.bullets : p.description ? [p.description] : [];
-    stones.push({
-      id: slug(`project-${p.name}`),
-      kind: 'project',
-      org: 'Project',
-      title: p.name,
-      period: '',
-      years: p.status || '',
-      lede: p.bullets && p.bullets.length ? p.description || '' : '',
-      bullets,
-      tags: p.stack || [],
-      tagsLabel: 'Stack',
-      links,
-      model: p.model || null,
-    });
-  }
-  if (skills.length) {
-    stones.push({
-      id: 'skills',
-      kind: 'skills',
-      org: 'Toolkit',
-      title: 'Skills',
-      period: '',
-      years: '',
-      groups: skills,
-      bullets: [],
-      tags: [],
-    });
-  }
-  return stones;
+  if (kind === 'skills') e.groups = [{ category: 'Languages', items: [] }];
+  if (kind === 'education') e.facts = [];
+  return e;
 }
