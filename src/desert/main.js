@@ -17,7 +17,6 @@ import * as resume from './resume/content.js';
 import { Arcade } from './arcade/arcade.js';
 import { Atomics, LaunchKey, strikeTargets } from './atomics.js';
 import { LaunchPad } from './launchpad.js';
-import { Multiplayer } from './multiplayer.js';
 
 // ---------------------------------------------------------------------------
 // Renderer & core objects
@@ -348,7 +347,6 @@ function updateLabels() {
     v.angle = Math.atan2(-(_base.y - _me.y), (_base.x - _me.x) * aspect);
   }
   codex.update(labelViews);
-  multiplayer.updateLabels(camera, W, H);
 }
 
 function setTimeOfDay(t) {
@@ -407,7 +405,6 @@ function newWorld(seed) {
   ui.fade(true);
   setTimeout(() => {
     applySeed(seed ?? Math.floor(Math.random() * 0xffffffff));
-    multiplayer.join(roomFor(seedValue));
     rocks.reset();
     trails.clear();
     particles.clear();
@@ -756,7 +753,7 @@ player.onLift = (s) => {
 };
 
 // ---------------------------------------------------------------------------
-// Arcade, atomics and other visitors
+// Arcade and atomics
 // ---------------------------------------------------------------------------
 // The arcade covers the screen and pauses the desert while it's open.
 let paused = false;
@@ -807,48 +804,13 @@ const atomics = new Atomics(scene, {
   },
 });
 
-function roomFor(seed) {
-  return `seed-${seed}`;
-}
-
-// Only the code holder can launch; the strike is signed so other visitors accept it.
+// Only the code holder can launch. The strike happens on this screen alone: nothing
+// is sent anywhere.
 function launch() {
-  const targets = strikeTargets(player.pos.x, player.pos.z);
-  atomics.drop(targets);
-  const order = { room: roomFor(seedValue), ts: Date.now(), nonce: Math.random().toString(36).slice(2, 12), targets };
-  multiplayer.broadcastStrike(launchKey.sign(order));
+  atomics.drop(strikeTargets(player.pos.x, player.pos.z));
   ui.toast('Atomics away.', 3);
 }
 const launchpad = new LaunchPad({ key: launchKey, onLaunch: launch, onOpen: () => keys.clear(), onClose: () => canvas.focus() });
-
-// footprints and dust for the other walkers (no sound, no rhythm)
-function otherFootstep(s) {
-  const rot = Math.atan2(Math.cos(s.yaw), Math.sin(s.yaw));
-  trails.stamp(STAMP.FOOT, s.x, s.z, rot, 0.74, 0.42, 0.06 + 0.035 * s.run, 0.03 + 0.02 * s.run, 0.85);
-  particles.footstep(s.x, s.y, s.z, s.dirX, s.dirZ, s.speed, s.run, atmos.litTint, s.sliding);
-}
-const presence = document.getElementById('presence');
-const presenceText = document.getElementById('presenceText');
-function showPresence() {
-  const n = multiplayer.count;
-  presence.classList.toggle('solo', !multiplayer.enabled);
-  presence.classList.toggle('others', multiplayer.enabled && n > 0);
-  presenceText.textContent = !multiplayer.enabled ? 'Solo · others can’t see you' : n === 0 ? 'Just you here' : n === 1 ? '1 other wanderer here' : `${n} other wanderers here`;
-}
-const multiplayer = new Multiplayer(scene, {
-  labelLayer: document.getElementById('labels'),
-  onCount: () => showPresence(),
-  onFootstep: otherFootstep,
-  onStrike: (order) => {
-    atomics.drop(order.targets);
-    ui.toast('Atomics inbound. Someone has the codes.', 3.5);
-  },
-});
-presence.addEventListener('click', () => {
-  multiplayer.setEnabled(!multiplayer.enabled);
-  showPresence();
-});
-presence.addEventListener('mouseup', () => presence.blur());
 
 function slideEffects(dt) {
   if (player.sliding <= 0.05 || player.speed < 0.3) return;
@@ -1097,12 +1059,26 @@ function settleResolution(realDt) {
 function reveal() {
   if (startup.revealed) return;
   startup.revealed = true;
-  const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
-  Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]).then(() => {
+  // Wait for the web fonts so text doesn't visibly swap, but never more than 2 s: the
+  // font stylesheet loads without blocking the page and may be slow or blocked.
+  Promise.race([fontsLoaded(), new Promise((r) => setTimeout(r, 2000))]).then(() => {
     document.body.classList.add('ready');
-    // meet whoever else is in this world, once the page is up
-    multiplayer.join(roomFor(seedValue));
   });
+}
+function fontsLoaded() {
+  const link = document.getElementById('fonts');
+  const sheet =
+    !link || link.media === 'all'
+      ? Promise.resolve()
+      : new Promise((r) => {
+          link.addEventListener('load', r, { once: true });
+          link.addEventListener('error', r, { once: true });
+        });
+  return sheet.then(() =>
+    document.fonts
+      ? Promise.all(['700 20px Syncopate', '500 16px Barlow', 'italic 400 20px "Cormorant Garamond"'].map((f) => document.fonts.load(f).catch(() => null)))
+      : null,
+  );
 }
 // Fade the scene up from the page colour once the page is revealed (body.ready, which
 // the inline fallback timer in index.html can also set).
@@ -1141,7 +1117,7 @@ function adaptResolution(realDt) {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
-// Everyone who arrives without a #seed lands in the same world, so visitors can meet;
+// Everyone who arrives without a #seed lands in the same, tested world;
 // "New erg" (or a #seed link) leads to other worlds.
 const DEFAULT_SEED = 12345;
 const hashSeed = /seed=(\d+)/.exec(window.location.hash);
@@ -1215,18 +1191,6 @@ function frame(now) {
   // ---- waystones ----
   updateWaystones(dt, t, vr);
 
-  // ---- other visitors ----
-  multiplayer.update(
-    dt,
-    { x: player.pos.x, z: player.pos.z, run: player.speed > 3.2, moving: player.speed > 0.12, active: entered },
-    {
-      wind: wind.vel,
-      collide: (pos, r, vel) => {
-        rocks.collide(pos, r, vel);
-        waystones.collide(pos, r, vel);
-      },
-    },
-  );
 
   // ---- particles ----
   particles.ambient(dt, cam.focus.x, cam.focus.z, vr * 0.95, wind.vel, Math.min(1.2, wind.strength), storm, atmos.litTint);
@@ -1310,7 +1274,6 @@ window.arrakis = {
   arcade,
   atomics,
   launchpad,
-  multiplayer,
   setPixelRatio: (pr) => {
     pixelRatio = pr;
     resizePending = true;

@@ -8,10 +8,10 @@ import { PT } from './particles.js';
 // The launch code
 // ---------------------------------------------------------------------------
 // The code itself is never stored anywhere. An entered code is stretched with PBKDF2
-// into an Ed25519 signing key; the code is right when that key's public half matches
-// PUBLIC_KEY. The same key signs each strike, so other visitors only accept strikes
-// from someone who knows the code. (A short numeric code can still be brute-forced by
-// anyone patient enough to run PBKDF2 offline; a longer code makes that impractical.)
+// into an Ed25519 key; the code is right when that key's public half matches
+// PUBLIC_KEY, so only a value derived from the code ships with the site. (A short
+// numeric code can still be brute-forced by anyone patient enough to run PBKDF2
+// offline; a longer code makes that impractical.)
 const PUBLIC_KEY = hexToBytes('05d32d846dbe1d7f690760f173c37090b8b0f2b1c0ed6e100fc6c16cf76b6e43');
 const SALT = 'muzzamilkhan.com/atomics/v1';
 const ROUNDS = 200000;
@@ -20,9 +20,6 @@ function hexToBytes(h) {
   const out = new Uint8Array(h.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(h.substr(i * 2, 2), 16);
   return out;
-}
-function bytesToHex(b) {
-  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 }
 function sameBytes(a, b) {
   if (a.length !== b.length) return false;
@@ -33,7 +30,6 @@ function sameBytes(a, b) {
 
 export class LaunchKey {
   constructor() {
-    this.secret = null;
     this.fails = 0;
     this.lockedUntil = 0;
   }
@@ -47,7 +43,6 @@ export class LaunchKey {
     const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(SALT), iterations: ROUNDS }, base, 256);
     const secret = new Uint8Array(bits);
     if (sameBytes(ed25519.getPublicKey(secret), PUBLIC_KEY)) {
-      this.secret = secret;
       this.fails = 0;
       return 'ok';
     }
@@ -61,22 +56,6 @@ export class LaunchKey {
 
   get lockSeconds() {
     return Math.max(0, Math.ceil((this.lockedUntil - Date.now()) / 1000));
-  }
-
-  // a signed, self-describing strike order for other visitors
-  sign(order) {
-    const p = JSON.stringify(order);
-    return { p, s: bytesToHex(ed25519.sign(new TextEncoder().encode(p), this.secret)) };
-  }
-
-  static verify(msg) {
-    try {
-      if (!msg || typeof msg.p !== 'string' || typeof msg.s !== 'string' || msg.p.length > 2000) return null;
-      if (!ed25519.verify(hexToBytes(msg.s), new TextEncoder().encode(msg.p), PUBLIC_KEY)) return null;
-      return JSON.parse(msg.p);
-    } catch {
-      return null;
-    }
   }
 }
 

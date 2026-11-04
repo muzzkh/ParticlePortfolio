@@ -60,7 +60,6 @@ export class UI {
   enter() {
     this.intro.classList.add('gone');
     this.hud.classList.remove('hidden');
-    $('presence').hidden = false;
   }
 
   toggleHidden() {

@@ -9,6 +9,9 @@ road. The desert itself is developed in
 [Updating the desert](#updating-the-desert).
 
 Browsers without WebGL get the intro screen with the PDF and contact links.
+The site opens no connections beyond its own files and Google Fonts, and the
+font stylesheet never holds up the page: where it is slow or blocked, the intro
+appears after at most two seconds with system fonts.
 
 ## Run it locally
 
@@ -44,7 +47,6 @@ src/
     ornithopter.js         # The ornithopter on the project pad
     codex.js               # Résumé index, dossier card, floating labels
     arcade/                # The arcade (P) and its three mini games
-    multiplayer.js         # Other visitors in the same world (peer-to-peer)
     atomics.js             # Atomics strike and launch-code check
     launchpad.js           # Launch keypad
     resume/content.js      # Re-exports src/data/resume.ts (kept across syncs)
