@@ -97,7 +97,7 @@ export class Codex {
     for (const entry of entries) {
       if (!groups.has(entry.kind)) {
         const g = el('div', 'codex-group');
-        g.append(el('div', 'codex-group-label', KINDS[entry.kind]?.label || entry.kind));
+        g.append(el('div', 'codex-group-label', KINDS[entry.kind]?.group || entry.kind));
         groups.set(entry.kind, g);
         this.body.append(g);
       }
@@ -184,6 +184,7 @@ export class Codex {
       for (const [k, v] of entry.facts) dl.append(el('dt', null, k), el('dd', null, v));
       body.append(dl);
     }
+    if (entry.lede) body.append(el('p', 'ds-lede', entry.lede));
     if (entry.bullets.length) {
       const ul = el('ul', 'ds-bullets');
       for (const b of entry.bullets) ul.append(el('li', null, b));

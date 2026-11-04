@@ -10,10 +10,14 @@ import { Sandworm, Thumper } from './worm.js';
 import { DesertAudio } from './audio.js';
 import { createPost } from './post.js';
 import { UI } from './ui.js';
-import { Waystones, WAKE_RADIUS, SAFE_RADIUS } from './waystones.js';
+import { Waystones, SAFE_MARGIN } from './waystones.js';
 import { Codex, contactLinks } from './codex.js';
 import { buildWaystones } from './resume/normalize.js';
 import * as resume from './resume/content.js';
+import { Arcade } from './arcade/arcade.js';
+import { Atomics, LaunchKey, strikeTargets } from './atomics.js';
+import { LaunchPad } from './launchpad.js';
+import { Multiplayer } from './multiplayer.js';
 
 // ---------------------------------------------------------------------------
 // Renderer & core objects
@@ -147,6 +151,8 @@ const ui = new UI({
   storm: () => toggleStorm(),
   seed: () => newWorld(),
   sound: () => toggleSound(),
+  arcade: () => arcade.show(),
+  atomics: () => launchpad.show(),
 });
 
 function enterDesert() {
@@ -170,7 +176,14 @@ const NUMBER_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven
 document.getElementById('introName').textContent = resume.profile.name;
 document.getElementById('introTitle').textContent = resume.profile.headline || resume.profile.title;
 document.getElementById('wordmark').textContent = resume.profile.name;
-document.getElementById('introLede').textContent = `${NUMBER_WORDS[entries.length] ?? entries.length} waystones stand in the deep desert, one for every chapter of the road so far. Walk out and read them.`;
+{
+  const stones = entries.filter((e) => e.kind !== 'project').length;
+  const pads = entries.length - stones;
+  document.getElementById('introLede').textContent =
+    `${NUMBER_WORDS[stones] ?? stones} waystones stand in the deep desert, one for every chapter of the road so far.` +
+    (pads ? ` The other way, ${pads > 1 ? 'landing pads hold' : 'a landing pad holds'} what I'm building now.` : '') +
+    ' Walk out and read them.';
+}
 document.getElementById('introLinks').append(...contactLinks(resume));
 
 const codex = new Codex({
@@ -202,7 +215,7 @@ function selectStone(id) {
   openStone(s, 'codex');
   if (window.innerWidth <= 760) codex.toggleCollapsed(true);
   const d = Math.hypot(s.x - player.pos.x, s.z - player.pos.z);
-  if (d > WAKE_RADIUS) {
+  if (d > s.wake) {
     const p = waystones.approachPoint(s, player.pos.x, player.pos.z);
     walkTo(p.x, p.z, d > 9);
     travel = s;
@@ -260,9 +273,11 @@ function updateWaystones(dt, t, vr) {
     viewR: vr,
     night: atmos.isNight,
     particles,
+    tint: atmos.litTint,
   });
+  audio.thopter(waystones.thrum);
   const s = near.stone;
-  const id = entered && s && near.dist < WAKE_RADIUS ? s.entry.id : null;
+  const id = entered && s && near.rel < 0 ? s.entry.id : null;
   if (id !== nearId) {
     if (nearId && suppressId === nearId) suppressId = null;
     nearId = id;
@@ -271,7 +286,7 @@ function updateWaystones(dt, t, vr) {
   // walking away from a stone that opened itself lets it fall quiet
   if (codex.isOpen && codex.source === 'proximity') {
     const cur = waystones.byId(codex.currentId);
-    if (cur && Math.hypot(cur.x - player.pos.x, cur.z - player.pos.z) > WAKE_RADIUS + 4.5) {
+    if (cur && Math.hypot(cur.x - player.pos.x, cur.z - player.pos.z) > cur.wake + 4.5) {
       codex.close();
       waystones.selectedId = null;
     }
@@ -292,15 +307,17 @@ function finale() {
   worm.summon({ kind: 'finale', x, z }, Math.atan2(uz, ux) + (Math.random() - 0.5) * 0.8, 90);
 }
 
+// The layout must come out the same for everyone in a given world (they can see each
+// other), so it depends only on the seed, never on the screen or the current view.
+// The road sets off toward the lower right of the starting view, which keeps the first
+// stone on screen on wide and tall screens alike; the project pads go the other way.
+const START_YAW = THREE.MathUtils.degToRad(12);
 function layoutRoad(x, z) {
-  // Set off into open ground between the panels: toward the right of the screen and
-  // rising a little on landscape screens, down and to the right on portrait ones.
-  // (screen right = (cos yaw, -sin yaw), screen up = (-sin yaw, -cos yaw) on the ground)
-  const portrait = window.innerWidth < window.innerHeight;
-  const r = portrait ? 0.36 : 0.9;
-  const u = portrait ? -0.93 : 0.42;
-  const ux = Math.cos(cam.yaw) * r - Math.sin(cam.yaw) * u;
-  const uz = -Math.sin(cam.yaw) * r - Math.cos(cam.yaw) * u;
+  // screen right = (cos yaw, -sin yaw), screen up = (-sin yaw, -cos yaw) on the ground
+  const r = 0.45;
+  const u = -0.89;
+  const ux = Math.cos(START_YAW) * r - Math.sin(START_YAW) * u;
+  const uz = -Math.sin(START_YAW) * r - Math.cos(START_YAW) * u;
   waystones.layout(x, z, Math.atan2(uz, ux), (px, pz, m) => rocks.nearRock(px, pz, m));
 }
 
@@ -327,10 +344,11 @@ function updateLabels() {
     v.sy = sy;
     v.alpha = Math.min(1, Math.max(0, edge / 70));
     v.dist = dist;
-    v.here = dist < WAKE_RADIUS;
+    v.here = dist < s.wake;
     v.angle = Math.atan2(-(_base.y - _me.y), (_base.x - _me.x) * aspect);
   }
   codex.update(labelViews);
+  multiplayer.updateLabels(camera, W, H);
 }
 
 function setTimeOfDay(t) {
@@ -372,7 +390,7 @@ function plantThumper() {
   const fz = Math.cos(player.yaw);
   const x = player.pos.x + fx * 1.2;
   const z = player.pos.z + fz * 1.2;
-  if (rocks.nearRock(x, z, 0.8) || waystones.nearStone(x, z, 2.2)) {
+  if (rocks.nearRock(x, z, 0.8) || waystones.nearStone(x, z, 0.8)) {
     ui.toast('A thumper needs open sand.', 2.5);
     return;
   }
@@ -389,6 +407,7 @@ function newWorld(seed) {
   ui.fade(true);
   setTimeout(() => {
     applySeed(seed ?? Math.floor(Math.random() * 0xffffffff));
+    multiplayer.join(roomFor(seedValue));
     rocks.reset();
     trails.clear();
     particles.clear();
@@ -422,8 +441,8 @@ function newWorld(seed) {
 // Camera rig: diagonal orthographic view that follows the walker
 // ---------------------------------------------------------------------------
 const cam = {
-  yaw: THREE.MathUtils.degToRad(12),
-  yawTarget: THREE.MathUtils.degToRad(12),
+  yaw: START_YAW,
+  yawTarget: START_YAW,
   pitch: THREE.MathUtils.degToRad(37),
   height: 30,
   heightTarget: 30,
@@ -431,6 +450,7 @@ const cam = {
   dist: 180,
   shake: 0,
   cine: 0,
+  strike: 0,
 };
 const camDir = new THREE.Vector3();
 const camRight = new THREE.Vector3();
@@ -479,6 +499,9 @@ function updateCamera(dt, t) {
     const need = Math.min(46, Math.max(36, d * 1.3 + 24));
     h = cam.heightTarget + Math.max(0, need - cam.heightTarget) * cam.cine;
   }
+  // pull back to the widest view while atomics are falling, so the strike is seen
+  cam.strike += ((atomics.active ? 1 : 0) - cam.strike) * (1 - Math.exp(-dt * (atomics.active ? 1.5 : 0.6)));
+  if (cam.strike > 0.001) h = Math.max(h, cam.heightTarget + (46 - cam.heightTarget) * cam.strike);
   cam.focus.lerp(_focusTarget, 1 - Math.exp(-dt * 4));
   cam.height += (h - cam.height) * (1 - Math.exp(-dt * 3));
 
@@ -544,6 +567,9 @@ window.addEventListener('keydown', (e) => {
       break;
     case 'KeyN':
       newWorld();
+      break;
+    case 'KeyP':
+      arcade.show();
       break;
     case 'KeyM':
       toggleSound();
@@ -728,6 +754,101 @@ player.onFootstep = (s) => {
 player.onLift = (s) => {
   if (s.run > 0.5) particles.kick(s.x, s.y, s.z, s.dirX, s.dirZ, s.speed, atmos.litTint);
 };
+
+// ---------------------------------------------------------------------------
+// Arcade, atomics and other visitors
+// ---------------------------------------------------------------------------
+// The arcade covers the screen and pauses the desert while it's open.
+let paused = false;
+const arcade = new Arcade({
+  onOpen: () => {
+    paused = true;
+    keys.clear();
+    pointerHeld = false;
+  },
+  onClose: () => {
+    paused = false;
+    canvas.focus();
+  },
+  sfx: (name) => audio.blip(name),
+});
+
+const launchKey = new LaunchKey();
+let lastFlash = -10;
+const flashEl = document.getElementById('nukeflash');
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const atomics = new Atomics(scene, {
+  particles,
+  trails,
+  hooks: {
+    shake: (x, z) => {
+      const d = Math.hypot(x - player.pos.x, z - player.pos.z);
+      cam.shake = Math.max(cam.shake, 3 * Math.max(0.2, 1 - d / 90));
+    },
+    knock: (x, z) => {
+      const d = Math.hypot(player.pos.x - x, player.pos.z - z);
+      if (d > 40) return;
+      const k = 1 - d / 40;
+      player.applyImpulse(((player.pos.x - x) / (d || 1)) * 14 * k, ((player.pos.z - z) / (d || 1)) * 14 * k, 0.5 + k);
+    },
+    sound: (kind) => (kind === 'boom' ? audio.eruption(1.6) : audio.whistle()),
+    // One full flash for a strike, faint ones for the bombs that follow it, none at all
+    // with reduced motion: several bright flashes in a row would strobe.
+    flash: () => {
+      if (reduceMotion.matches) return;
+      const now = performance.now() / 1000;
+      const strong = now - lastFlash > 4;
+      lastFlash = now;
+      flashEl.style.setProperty('--peak', strong ? '0.85' : '0.2');
+      flashEl.classList.remove('on');
+      void flashEl.offsetWidth;
+      flashEl.classList.add('on');
+    },
+  },
+});
+
+function roomFor(seed) {
+  return `seed-${seed}`;
+}
+
+// Only the code holder can launch; the strike is signed so other visitors accept it.
+function launch() {
+  const targets = strikeTargets(player.pos.x, player.pos.z);
+  atomics.drop(targets);
+  const order = { room: roomFor(seedValue), ts: Date.now(), nonce: Math.random().toString(36).slice(2, 12), targets };
+  multiplayer.broadcastStrike(launchKey.sign(order));
+  ui.toast('Atomics away.', 3);
+}
+const launchpad = new LaunchPad({ key: launchKey, onLaunch: launch, onOpen: () => keys.clear(), onClose: () => canvas.focus() });
+
+// footprints and dust for the other walkers (no sound, no rhythm)
+function otherFootstep(s) {
+  const rot = Math.atan2(Math.cos(s.yaw), Math.sin(s.yaw));
+  trails.stamp(STAMP.FOOT, s.x, s.z, rot, 0.74, 0.42, 0.06 + 0.035 * s.run, 0.03 + 0.02 * s.run, 0.85);
+  particles.footstep(s.x, s.y, s.z, s.dirX, s.dirZ, s.speed, s.run, atmos.litTint, s.sliding);
+}
+const presence = document.getElementById('presence');
+const presenceText = document.getElementById('presenceText');
+function showPresence() {
+  const n = multiplayer.count;
+  presence.classList.toggle('solo', !multiplayer.enabled);
+  presence.classList.toggle('others', multiplayer.enabled && n > 0);
+  presenceText.textContent = !multiplayer.enabled ? 'Solo · others can’t see you' : n === 0 ? 'Just you here' : n === 1 ? '1 other wanderer here' : `${n} other wanderers here`;
+}
+const multiplayer = new Multiplayer(scene, {
+  labelLayer: document.getElementById('labels'),
+  onCount: () => showPresence(),
+  onFootstep: otherFootstep,
+  onStrike: (order) => {
+    atomics.drop(order.targets);
+    ui.toast('Atomics inbound. Someone has the codes.', 3.5);
+  },
+});
+presence.addEventListener('click', () => {
+  multiplayer.setEnabled(!multiplayer.enabled);
+  showPresence();
+});
+presence.addEventListener('mouseup', () => presence.blur());
 
 function slideEffects(dt) {
   if (player.sliding <= 0.05 || player.speed < 0.3) return;
@@ -977,7 +1098,11 @@ function reveal() {
   if (startup.revealed) return;
   startup.revealed = true;
   const fontsReady = document.fonts ? document.fonts.ready : Promise.resolve();
-  Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]).then(() => document.body.classList.add('ready'));
+  Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]).then(() => {
+    document.body.classList.add('ready');
+    // meet whoever else is in this world, once the page is up
+    multiplayer.join(roomFor(seedValue));
+  });
 }
 // Fade the scene up from the page colour once the page is revealed (body.ready, which
 // the inline fallback timer in index.html can also set).
@@ -1016,8 +1141,11 @@ function adaptResolution(realDt) {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
+// Everyone who arrives without a #seed lands in the same world, so visitors can meet;
+// "New erg" (or a #seed link) leads to other worlds.
+const DEFAULT_SEED = 12345;
 const hashSeed = /seed=(\d+)/.exec(window.location.hash);
-applySeed(hashSeed ? parseInt(hashSeed[1], 10) : Math.floor(Math.random() * 0xffffffff));
+applySeed(hashSeed ? parseInt(hashSeed[1], 10) : DEFAULT_SEED);
 {
   const s = findSpawn();
   player.spawn(s.x, s.z, 0.6);
@@ -1037,6 +1165,11 @@ function frame(now) {
   if (resizePending) {
     resizePending = false;
     onResize();
+  }
+  if (paused) {
+    // the arcade is open: hold the world still (the canvas keeps its last frame)
+    last = now;
+    return;
   }
   const realDt = Math.min(0.25, Math.max(0.0005, (now - last) / 1000));
   const dt = Math.min(0.05, realDt);
@@ -1062,13 +1195,14 @@ function frame(now) {
     },
   });
   // waystones stand on bedrock: as safe from the worm as any rock
-  onRock = rocks.nearRock(player.pos.x, player.pos.z, 1.2) || waystones.nearStone(player.pos.x, player.pos.z, SAFE_RADIUS);
+  onRock = rocks.nearRock(player.pos.x, player.pos.z, 1.2) || waystones.nearStone(player.pos.x, player.pos.z, SAFE_MARGIN);
   if (!entered) player.rhythm = 0;
   rocks.update(player.pos.x, player.pos.z);
   slideEffects(dt);
 
   // ---- world events ----
   updateThumper(dt);
+  atomics.update(dt, atmos.litTint);
   updateWorm(dt, t);
   updateCraters(dt);
 
@@ -1080,6 +1214,19 @@ function frame(now) {
 
   // ---- waystones ----
   updateWaystones(dt, t, vr);
+
+  // ---- other visitors ----
+  multiplayer.update(
+    dt,
+    { x: player.pos.x, z: player.pos.z, run: player.speed > 3.2, moving: player.speed > 0.12, active: entered },
+    {
+      wind: wind.vel,
+      collide: (pos, r, vel) => {
+        rocks.collide(pos, r, vel);
+        waystones.collide(pos, r, vel);
+      },
+    },
+  );
 
   // ---- particles ----
   particles.ambient(dt, cam.focus.x, cam.focus.z, vr * 0.95, wind.vel, Math.min(1.2, wind.strength), storm, atmos.litTint);
@@ -1160,6 +1307,10 @@ window.arrakis = {
   newWorld,
   setTimeOfDay,
   selectStone,
+  arcade,
+  atomics,
+  launchpad,
+  multiplayer,
   setPixelRatio: (pr) => {
     pixelRatio = pr;
     resizePending = true;

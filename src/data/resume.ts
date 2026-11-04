@@ -1,6 +1,6 @@
-// Resume data — edit this file to update the site. Each experience, education
-// entry and project becomes a waystone in the desert (in that order along the
-// road), and the skill groups become the last one.
+// Resume data — edit this file to update the site. Each experience and
+// education entry becomes a waystone in the desert (in that order along the
+// road) and the skill groups become the last one; each project gets a landing pad.
 
 export type LinkItem = {
   label: string
@@ -29,10 +29,16 @@ export type ExperienceItem = {
 export type ProjectItem = {
   name: string
   description: string
+  // e.g. 'In progress'; shown with the project
+  status?: string
+  // details; when present, `description` becomes the lead-in above them
+  bullets?: string[]
   href?: string
   repo?: string
   stack?: string[]
   highlight?: boolean
+  // the 3D model on the project's landing pad; without one, a cargo pod
+  model?: 'ornithopter'
 }
 
 export type SkillGroup = {
@@ -140,16 +146,22 @@ export const education: EducationItem[] = [
   },
 ]
 
-// Add new projects here — each one gets its own waystone in the desert.
+// Projects stand apart from the résumé road, each on its own landing pad in the
+// desert, the opposite way from the waystones.
 export const projects: ProjectItem[] = [
-  // {
-  //   name: 'Project name',
-  //   description: 'Short blurb describing what it is and why it matters.',
-  //   href: 'https://example.com',
-  //   repo: 'https://github.com/your/repo',
-  //   stack: ['React', 'TypeScript'],
-  //   highlight: true,
-  // },
+  {
+    name: 'Ornithopter',
+    status: 'In progress',
+    model: 'ornithopter',
+    description:
+      'A flying, flapping-wing ornithopter inspired by the ones in Dune. (Placeholder: the full write-up is coming soon.)',
+    bullets: [
+      'Placeholder: what it is and why I am building it.',
+      'Placeholder: how the wings, airframe and flight controller work.',
+      'Placeholder: where it is now, test flights, and what comes next.',
+    ],
+    stack: [],
+  },
 ]
 
 export const skills: SkillGroup[] = [

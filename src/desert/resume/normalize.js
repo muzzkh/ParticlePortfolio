@@ -1,10 +1,11 @@
 // Turns resume content into waystones: one standing stone per chapter of the road so far.
 
+// label: shown on a single entry; group: heading for the list in the codex
 export const KINDS = {
-  experience: { label: 'Experience', glyph: 'diamond' },
-  education: { label: 'Education', glyph: 'circle' },
-  project: { label: 'Project', glyph: 'square' },
-  skills: { label: 'Toolkit', glyph: 'triangle' },
+  experience: { label: 'Experience', group: 'Experience', glyph: 'diamond' },
+  education: { label: 'Education', group: 'Education', glyph: 'circle' },
+  project: { label: 'Project', group: 'Projects', glyph: 'square' },
+  skills: { label: 'Toolkit', group: 'Toolkit', glyph: 'triangle' },
 };
 
 function slug(s) {
@@ -62,17 +63,20 @@ export function buildWaystones({ experience = [], education = [], projects = [],
     const links = [];
     if (p.href) links.push({ label: 'Visit', href: p.href });
     if (p.repo) links.push({ label: 'Source', href: p.repo });
+    const bullets = p.bullets && p.bullets.length ? p.bullets : p.description ? [p.description] : [];
     stones.push({
       id: slug(`project-${p.name}`),
       kind: 'project',
       org: 'Project',
       title: p.name,
       period: '',
-      years: '',
-      bullets: p.description ? [p.description] : [],
+      years: p.status || '',
+      lede: p.bullets && p.bullets.length ? p.description || '' : '',
+      bullets,
       tags: p.stack || [],
       tagsLabel: 'Stack',
       links,
+      model: p.model || null,
     });
   }
   if (skills.length) {

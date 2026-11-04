@@ -145,6 +145,81 @@ export class DesertAudio {
     src.start(t, Math.random(), 0.1);
   }
 
+  // A falling bomb: a thin whistle dropping in pitch.
+  whistle() {
+    if (!this.ctx || !this.enabled) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(1500, t);
+    o.frequency.exponentialRampToValueAtTime(420, t + 1.6);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.7);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + 1.75);
+  }
+
+  // Little arcade sounds: a pitch sweep with a quick envelope.
+  blip(name) {
+    if (!this.ctx || !this.enabled) return;
+    const presets = {
+      pickup: [880, 1320, 0.09, 'triangle', 0.07],
+      jump: [330, 620, 0.12, 'square', 0.035],
+      stomp: [240, 110, 0.12, 'square', 0.05],
+      hit: [300, 90, 0.25, 'sawtooth', 0.05],
+      die: [260, 55, 0.5, 'sawtooth', 0.06],
+      clear: [523, 1046, 0.4, 'triangle', 0.07],
+    };
+    const [f0, f1, dur, type, vol] = presets[name] || presets.pickup;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  // The ornithopter's wingbeat: low noise pulsed at the flap rate. level 0..1.
+  thopter(level) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    if (!this.thop) {
+      if (level < 0.01) return;
+      const src = ctx.createBufferSource();
+      src.buffer = this.brown;
+      src.loop = true;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 150;
+      band.Q.value = 1.1;
+      const pulse = ctx.createGain();
+      pulse.gain.value = 0.5;
+      const beat = ctx.createOscillator();
+      beat.frequency.value = 11;
+      const depth = ctx.createGain();
+      depth.gain.value = 0.5;
+      beat.connect(depth).connect(pulse.gain);
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      src.connect(band).connect(pulse).connect(out).connect(this.master);
+      src.start();
+      beat.start();
+      this.thop = { out };
+    }
+    this.thop.out.gain.setTargetAtTime(Math.min(1, level) * 0.5, ctx.currentTime, 0.25);
+  }
+
   // A waystone waking: a struck-stone bell over a low swell, with a breath of sand.
   chime(kind = 'experience') {
     if (!this.ctx || !this.enabled) return;

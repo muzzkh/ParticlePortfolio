@@ -30,6 +30,8 @@ export class UI {
       sandwalk: $('btnSandwalk'),
       storm: $('btnStorm'),
       seed: $('btnSeed'),
+      arcade: $('btnArcade'),
+      atomics: $('btnAtomics'),
       sound: $('btnSound'),
     };
     this.buttons.sound.classList.add('on');
@@ -45,6 +47,8 @@ export class UI {
     this.buttons.storm.addEventListener('click', () => handlers.storm());
     this.buttons.seed.addEventListener('click', () => handlers.seed());
     this.buttons.sound.addEventListener('click', () => handlers.sound());
+    this.buttons.arcade.addEventListener('click', () => handlers.arcade());
+    this.buttons.atomics.addEventListener('click', () => handlers.atomics());
     for (const b of Object.values(this.buttons)) b.addEventListener('mouseup', () => b.blur());
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -56,6 +60,7 @@ export class UI {
   enter() {
     this.intro.classList.add('gone');
     this.hud.classList.remove('hidden');
+    $('presence').hidden = false;
   }
 
   toggleHidden() {

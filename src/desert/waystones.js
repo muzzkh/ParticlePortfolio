@@ -3,13 +3,16 @@ import { terrainHeight, groundGradient, vnoise, getSeed } from './noise.js';
 import { makeRockGeometry } from './rocks.js';
 import { PT } from './particles.js';
 import { STAMP } from './trails.js';
+import { Ornithopter, CargoPod } from './ornithopter.js';
 
 // Waystones: basalt monoliths standing on bedrock, one per chapter of the resume.
 // They are laid out as a meandering road leading away from where the walker starts,
 // newest chapter first, so walking the road reads the resume in order.
+// Projects are different: each sits on a stone landing pad (with its 3D model) along a
+// second path that sets off the opposite way.
 
 export const WAKE_RADIUS = 3.6; // walk this close and the stone speaks
-export const SAFE_RADIUS = 3.4; // its bedrock: the worm can't follow you here
+export const SAFE_MARGIN = 2.0; // bedrock around a stone or pad: the worm can't follow you here
 
 const STONE_W = 0.95;
 const STONE_D = 0.58;
@@ -17,6 +20,12 @@ const STONE_H = 3.3;
 const PLINTH_R = 1.45;
 const FIRST = 7.5;
 const SPACING = 11.5;
+// project landing pads: off the other way from the road
+const PAD_R = 3.6;
+const PAD_TOP = 0.42;
+const PAD_FIRST = 12;
+const PAD_SPACING = 14;
+const PAD_LINE = new THREE.Color(0.14, 0.55, 0.5);
 
 // HDR colours: the inscriptions run hot enough to catch the bloom pass.
 const GLOW = {
@@ -217,12 +226,15 @@ export class Waystones {
     this.plinthMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.92, metalness: 0 });
     this.pebbleMat = new THREE.MeshStandardMaterial({ color: '#6a4a36', flatShading: true, roughness: 0.9 });
     this.pebbleGeo = new THREE.DodecahedronGeometry(1, 0);
+    this.padMat = new THREE.MeshStandardMaterial({ color: '#5d4b3c', flatShading: true, roughness: 0.88, metalness: 0.05 });
+    this.postMat = new THREE.MeshStandardMaterial({ color: '#2f2924', roughness: 0.6, metalness: 0.5 });
     this.night = 0;
     this.selectedId = null;
+    this.thrum = 0; // how loud the nearest hovering craft is, 0..1
     this._c = new THREE.Color();
 
     const rng = mulberry32(0x5eed);
-    this.stones = entries.map((entry, i) => this._build(entry, i, rng));
+    this.stones = entries.map((entry, i) => (entry.kind === 'project' ? this._buildPad(entry, i, rng) : this._build(entry, i, rng)));
   }
 
   _build(entry, index, rng) {
@@ -287,6 +299,8 @@ export class Waystones {
       shaftMat,
       glyphMat,
       pebbles,
+      radius: PLINTH_R, // solid: the walker can't pass inside this
+      wake: WAKE_RADIUS, // within this the stone opens its dossier
       x: 0,
       z: 0,
       y: 0,
@@ -297,32 +311,112 @@ export class Waystones {
     };
   }
 
+  // A project: an octagonal stone landing pad, an inlaid ring and chevrons, beacon posts
+  // around the rim, and the project's model parked in the middle.
+  _buildPad(entry, index, rng) {
+    const root = new THREE.Group();
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(PAD_R, PAD_R + 0.3, 0.6, 8), this.padMat);
+    pad.position.y = PAD_TOP - 0.3;
+    pad.castShadow = true;
+    pad.receiveShadow = true;
+    const lineMat = new THREE.MeshBasicMaterial({ color: PAD_LINE.clone() });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(PAD_R * 0.73, PAD_R * 0.76, 48).rotateX(-Math.PI / 2), lineMat);
+    ring.position.y = PAD_TOP + 0.012;
+    root.add(pad, ring);
+    const chevron = new THREE.Shape();
+    chevron.moveTo(-0.32, 0);
+    chevron.lineTo(0, -0.34);
+    chevron.lineTo(0.32, 0);
+    chevron.lineTo(0.22, 0.02);
+    chevron.lineTo(0, -0.2);
+    chevron.lineTo(-0.22, 0.02);
+    chevron.closePath();
+    const chevGeo = new THREE.ShapeGeometry(chevron).rotateX(-Math.PI / 2);
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+      const c = new THREE.Mesh(chevGeo, lineMat);
+      c.position.set(Math.cos(a) * PAD_R * 0.88, PAD_TOP + 0.012, Math.sin(a) * PAD_R * 0.88);
+      c.rotation.y = -a - Math.PI / 2; // point at the centre
+      root.add(c);
+    }
+    const bulbs = [];
+    const bulbGeo = new THREE.SphereGeometry(0.09, 10, 8);
+    const postGeo = new THREE.CylinderGeometry(0.05, 0.07, 0.5, 8);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + Math.PI / 8;
+      const post = new THREE.Mesh(postGeo, this.postMat);
+      post.position.set(Math.cos(a) * (PAD_R + 0.05), PAD_TOP + 0.25, Math.sin(a) * (PAD_R + 0.05));
+      post.castShadow = true;
+      const mat = new THREE.MeshBasicMaterial({ color: PAD_LINE.clone() });
+      const bulb = new THREE.Mesh(bulbGeo, mat);
+      bulb.position.set(post.position.x, PAD_TOP + 0.55, post.position.z);
+      root.add(post, bulb);
+      bulbs.push(mat);
+    }
+    const model = entry.model === 'ornithopter' ? new Ornithopter() : new CargoPod();
+    model.root.position.y = PAD_TOP;
+    model.yaw = rng() * Math.PI * 2;
+    model.root.rotation.y = model.yaw;
+    root.add(model.root);
+    this.group.add(root);
+    return {
+      entry,
+      index,
+      kind: 'project',
+      h: model.height,
+      root,
+      model,
+      lineMat,
+      bulbs,
+      lift: 0,
+      radius: PAD_R + 0.15,
+      wake: PAD_R + 2.6,
+      x: 0,
+      z: 0,
+      y: 0,
+      found: false,
+      glow: 1,
+      pulse: 0,
+      moteAcc: 0,
+      dustAcc: 0,
+    };
+  }
+
   byId(id) {
     return this.stones.find((s) => s.entry.id === id) || null;
   }
 
-  // Lay the road out from (sx, sz), setting off along `heading` (radians, world x/z plane).
+  // Lay the road out from (sx, sz), setting off along `heading` (radians, world x/z plane),
+  // and the project pads along their own path the opposite way.
   // `blocked(x, z, margin)` reports rock; stones keep clear of it.
   layout(sx, sz, heading, blocked) {
     const seed = getSeed();
     const rng = mulberry32((Math.floor(seed.x * 31 + seed.z * 17) ^ 0x9e3779b9) >>> 0);
-    const g = { x: 0, z: 0 };
     const placed = [];
+    const road = this.stones.filter((s) => s.kind !== 'project');
+    const pads = this.stones.filter((s) => s.kind === 'project');
+    this._path(road, sx, sz, heading, FIRST, SPACING, 3.2, 7.5, 0, placed, blocked, rng, (s, x, z) => this._place(s, x, z, rng));
+    this._path(pads, sx, sz, heading + Math.PI, PAD_FIRST, PAD_SPACING, PAD_R + 2, 11, 3, placed, blocked, rng, (s, x, z) => this._placePad(s, x, z));
+  }
+
+  // Walk a meandering path, putting each site on the calmest open sand near its ideal spot.
+  _path(sites, sx, sz, heading, first, spacing, rockMargin, apart, flatWeight, placed, blocked, rng, place) {
+    const g = { x: 0, z: 0 };
     let x = sx;
     let z = sz;
+    let px = sx;
+    let pz = sz;
     let dir = heading;
     let bend = 0;
-    for (const s of this.stones) {
-      const first = placed.length === 0;
-      if (!first) {
+    sites.forEach((s, i) => {
+      if (i > 0) {
         bend += (rng() - 0.5) * 0.7;
         bend *= 0.7;
         dir += bend + (rng() - 0.5) * 0.35;
       }
-      const step = first ? FIRST : SPACING;
+      const step = i === 0 ? first : spacing;
       const tx = x + Math.cos(dir) * step;
       const tz = z + Math.sin(dir) * step;
-      // pick the calmest open patch of sand near the ideal spot
       let best = null;
       for (let ring = 0; ring <= 3; ring++) {
         const n = ring === 0 ? 1 : 10;
@@ -331,19 +425,24 @@ export class Waystones {
           const cx = tx + Math.cos(a) * ring * 1.6;
           const cz = tz + Math.sin(a) * ring * 1.6;
           groundGradient(cx, cz, g);
-          let score = Math.hypot(g.x, g.z) + ring * 0.06;
-          if (blocked && blocked(cx, cz, 3.2)) score += 10;
+          let score = Math.hypot(g.x, g.z) * (1 + flatWeight) + ring * 0.06;
+          if (flatWeight) {
+            // pads are wide: also check the slope across their footprint
+            const hs = [0, 1, 2, 3].map((q) => terrainHeight(cx + Math.cos(q * 1.571) * PAD_R, cz + Math.sin(q * 1.571) * PAD_R));
+            score += (Math.max(...hs) - Math.min(...hs)) * 0.4;
+          }
+          if (blocked && blocked(cx, cz, rockMargin)) score += 10;
           if (Math.hypot(cx - sx, cz - sz) < 6) score += 10;
-          for (const p of placed) if (Math.hypot(cx - p.x, cz - p.z) < 7.5) score += 10;
+          for (const p of placed) if (Math.hypot(cx - p.x, cz - p.z) < apart) score += 10;
           if (!best || score < best.score) best = { x: cx, z: cz, score };
         }
       }
-      x = best.x;
-      z = best.z;
-      dir = Math.atan2(z - (placed.length ? placed[placed.length - 1].z : sz), x - (placed.length ? placed[placed.length - 1].x : sx));
+      dir = Math.atan2(best.z - pz, best.x - px);
+      x = px = best.x;
+      z = pz = best.z;
       placed.push({ x, z });
-      this._place(s, x, z, rng);
-    }
+      place(s, x, z);
+    });
   }
 
   _place(s, x, z, rng) {
@@ -382,8 +481,26 @@ export class Waystones {
     s.pebbles.computeBoundingSphere();
   }
 
-  // world-space point just above the stone, for HUD labels
+  _placePad(s, x, z) {
+    // sit the pad on the high side so it never floats; the sand drifts up its low side
+    let sum = 0;
+    let maxH = -Infinity;
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const h = terrainHeight(x + Math.cos(a) * PAD_R, z + Math.sin(a) * PAD_R);
+      sum += h;
+      maxH = Math.max(maxH, h);
+    }
+    const base = Math.min(maxH - 0.15, sum / 12 + 0.25);
+    s.x = x;
+    s.z = z;
+    s.y = base;
+    s.root.position.set(x, base, z);
+  }
+
+  // world-space point just above the stone (or the craft on its pad), for HUD labels
   anchor(s, out) {
+    if (s.kind === 'project') return out.set(s.x, s.y + PAD_TOP + s.model.height + 0.5, s.z);
     return out.set(s.x, s.y + s.h + 0.9, s.z);
   }
 
@@ -392,7 +509,8 @@ export class Waystones {
     const dx = fx - s.x;
     const dz = fz - s.z;
     const d = Math.hypot(dx, dz) || 1;
-    return { x: s.x + (dx / d) * 2.4, z: s.z + (dz / d) * 2.4 };
+    const r = s.radius + 1.0;
+    return { x: s.x + (dx / d) * r, z: s.z + (dz / d) * r };
   }
 
   collide(pos, r, vel) {
@@ -400,7 +518,7 @@ export class Waystones {
       const dx = pos.x - s.x;
       const dz = pos.z - s.z;
       const d = Math.hypot(dx, dz);
-      const min = PLINTH_R + r;
+      const min = s.radius + r;
       if (d < min && d > 1e-4) {
         const nx = dx / d;
         const nz = dz / d;
@@ -417,20 +535,22 @@ export class Waystones {
     }
   }
 
-  nearStone(x, z, margin = SAFE_RADIUS) {
-    for (const s of this.stones) if (Math.hypot(x - s.x, z - s.z) < margin) return true;
+  // within `margin` of a stone's or pad's edge
+  nearStone(x, z, margin = SAFE_MARGIN) {
+    for (const s of this.stones) if (Math.hypot(x - s.x, z - s.z) < s.radius + margin) return true;
     return false;
   }
 
   // The moment a stone is first reached: dust, a ring in the sand, a swirl of spice.
   awaken(s, particles, trails, tint) {
     s.pulse = 1;
-    particles.burst(s.x, s.y + 0.3, s.z, 70, 2.4, tint, { radius: 1.4, dust: 0.6, puff: 0.9, grow: 1.3 });
-    trails.stamp(STAMP.RING, s.x, s.z, 0, 6.5, 6.5, 0, 0.035, 0.9);
+    const r0 = s.kind === 'project' ? PAD_R : 1.4;
+    particles.burst(s.x, s.y + 0.3, s.z, 70, 2.4, tint, { radius: r0, dust: 0.6, puff: 0.9, grow: 1.3 });
+    trails.stamp(STAMP.RING, s.x, s.z, 0, r0 * 4.6, r0 * 4.6, 0, 0.035, 0.9);
     const glow = this._c.copy(GLOW[s.kind]).multiplyScalar(0.7);
     for (let i = 0; i < 70; i++) {
       const a = Math.random() * Math.PI * 2;
-      const r = 0.8 + Math.random() * 2.2;
+      const r = r0 * 0.6 + Math.random() * 2.2;
       particles.spawn(
         PT.SPICE,
         s.x + Math.cos(a) * r,
@@ -448,19 +568,29 @@ export class Waystones {
     }
   }
 
+  // Returns the site nearest to the walker relative to its wake radius:
+  // { stone, dist, rel } where rel < 0 means the walker is inside its wake.
   update(dt, t, ctx) {
-    const { px, pz, camYaw, focusX, focusZ, viewR, night, particles } = ctx;
+    const { px, pz, camYaw, focusX, focusZ, viewR, night, particles, tint } = ctx;
     this.night += ((night ? 1 : 0) - this.night) * (1 - Math.exp(-dt * 0.8));
     let nearest = null;
     let nd = Infinity;
+    let nr = Infinity;
+    let thrum = 0;
     for (const s of this.stones) {
       const d = Math.hypot(px - s.x, pz - s.z);
-      if (d < nd) {
+      if (d - s.wake < nr) {
+        nr = d - s.wake;
         nd = d;
         nearest = s;
       }
       const selected = this.selectedId === s.entry.id ? 1 : 0;
       s.pulse = Math.max(0, s.pulse - dt * 0.45);
+      const inView = Math.hypot(s.x - focusX, s.z - focusZ) < viewR + 8;
+      if (s.kind === 'project') {
+        thrum = Math.max(thrum, this._updatePad(s, dt, t, d, selected, inView, px, pz, particles, tint));
+        continue;
+      }
       const near = 1 - smoothstep(2.5, 10, d);
       const target = (s.found ? 0.8 : 1) + near * 0.45 + selected * 0.35 + s.pulse * 2.2;
       s.glow += (target - s.glow) * (1 - Math.exp(-dt * 4));
@@ -475,7 +605,6 @@ export class Waystones {
       u.uOpacity.value = (base + selected * 0.25 + s.pulse * 0.9) * (1 + this.night * 0.7);
 
       // drifting spice motes around stones in view
-      const inView = Math.hypot(s.x - focusX, s.z - focusZ) < viewR + 8;
       if (inView && particles) {
         s.moteAcc += dt * (s.found ? 2.5 : 6) * (1 + selected);
         const glow = this._c.copy(GLOW[s.kind]).multiplyScalar(0.55);
@@ -502,6 +631,39 @@ export class Waystones {
         s.moteAcc = 0;
       }
     }
-    return { stone: nearest, dist: nd };
+    this.thrum = thrum;
+    return { stone: nearest, dist: nd, rel: nr };
+  }
+
+  // The craft lifts off as the walker comes near, hovers facing them, and settles back
+  // when they leave. Beacons breathe around the rim (smoothly: nothing blinks).
+  _updatePad(s, dt, t, d, selected, inView, px, pz, particles, tint) {
+    const want = d < 11 ? 1 : 0;
+    s.lift += (want - s.lift) * (1 - Math.exp(-dt * (want > s.lift ? 0.8 : 0.5)));
+    if (s.lift < 1e-3) s.lift = 0;
+    s.model.update(dt, t, s.lift, Math.atan2(px - s.x, pz - s.z));
+    s.h = s.model.height;
+    const near = 1 - smoothstep(3, 14, d);
+    const k = 0.75 + near * 0.35 + selected * 0.25 + s.pulse * 0.8;
+    s.lineMat.color.copy(PAD_LINE).multiplyScalar(k);
+    for (let i = 0; i < s.bulbs.length; i++) {
+      const b = 0.5 + 0.5 * Math.sin(t * 1.4 - i * 0.785);
+      s.bulbs[i].color.copy(PAD_LINE).multiplyScalar(0.45 + 0.75 * b * k);
+    }
+    // downwash: sand blown out from under the craft
+    if (inView && particles && tint && s.lift > 0.15) {
+      s.dustAcc += dt * 26 * s.lift;
+      const c = this._c.copy(particles.dustColor).multiply(tint);
+      while (s.dustAcc >= 1) {
+        s.dustAcc -= 1;
+        const a = Math.random() * Math.PI * 2;
+        const r = PAD_R + 0.2 + Math.random() * 0.8;
+        const v = 2 + Math.random() * 2.5 * s.lift;
+        particles.spawn(PT.DUST, s.x + Math.cos(a) * r, s.y + 0.15, s.z + Math.sin(a) * r, Math.cos(a) * v, 0.25, Math.sin(a) * v, 0.35 + Math.random() * 0.4, 1.6 + Math.random(), c, 0.22, { grow: 0.9, drag: 0.7 });
+      }
+    } else {
+      s.dustAcc = 0;
+    }
+    return s.lift * Math.max(0, 1 - d / 40);
   }
 }

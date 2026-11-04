@@ -39,18 +39,24 @@ src/
   data/
     resume.ts              # All resume content lives here
   desert/                  # Vendored from muzzkh/arrakis, don't edit here
-    main.js                # Scene, game loop, waystone orchestration
-    waystones.js           # The monoliths, their light columns and placement
+    main.js                # Scene, game loop, résumé orchestration
+    waystones.js           # The monoliths and project landing pads, and their layout
+    ornithopter.js         # The ornithopter on the project pad
     codex.js               # Résumé index, dossier card, floating labels
+    arcade/                # The arcade (P) and its three mini games
+    multiplayer.js         # Other visitors in the same world (peer-to-peer)
+    atomics.js             # Atomics strike and launch-code check
+    launchpad.js           # Launch keypad
     resume/content.js      # Re-exports src/data/resume.ts (kept across syncs)
     …                      # terrain, sandworm, walker, particles, audio
 ```
 
 ## Updating the résumé
 
-Edit `src/data/resume.ts`. Each experience, education entry and project
-becomes a waystone (newest first along the road), and the skill groups become
-the last one, so adding an entry is all it takes to add a stone.
+Edit `src/data/resume.ts`. Each experience and education entry becomes a
+waystone (newest first along the road) and the skill groups become the last
+one. Each project gets a landing pad off the other way, with the 3D model named
+in its `model` field (`'ornithopter'`, or none for a cargo pod).
 `profile.headline` is the line shown above the name on the intro screen.
 
 To replace the PDF, overwrite `public/Muzzamil_Khan_Resume.pdf`.
