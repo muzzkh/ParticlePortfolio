@@ -1,6 +1,6 @@
-// Resume data — edit this file to update content across the site.
-// Adding a new section is as simple as appending a new entry that matches
-// one of the section shapes below and registering it in `tabs.ts`.
+// Resume data — edit this file to update the site. Each experience, education
+// entry and project becomes a waystone in the desert (in that order along the
+// road), and the skill groups become the last one.
 
 export type LinkItem = {
   label: string
@@ -140,8 +140,7 @@ export const education: EducationItem[] = [
   },
 ]
 
-// Add new projects here — they render on the Projects tab and get their own
-// waystone in the desert.
+// Add new projects here — each one gets its own waystone in the desert.
 export const projects: ProjectItem[] = [
   // {
   //   name: 'Project name',

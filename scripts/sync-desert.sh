@@ -6,7 +6,7 @@
 # Copies arrakis/src into src/desert, arrakis/index.html to ./index.html and the
 # desert's favicon into public/. (The resume PDF in public/ is managed here.)
 # src/desert/resume/content.js is kept: here it re-exports src/data/resume.ts,
-# so the desert and the classic page read the same resume.
+# so the live site's resume is edited there.
 set -euo pipefail
 
 SRC="${1:-../arrakis}"
