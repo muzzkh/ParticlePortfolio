@@ -148,7 +148,8 @@ export class GameHud {
 // ---------------------------------------------------------------------------
 const _v = new THREE.Vector3();
 export class SiteLabel {
-  constructor(layer, { kicker, title }, onClick) {
+  constructor(layer, { kicker, title, verb = 'play' }, onClick) {
+    this.verb = verb;
     this.el = document.createElement('button');
     this.el.type = 'button';
     this.el.className = 'wl kind-game';
@@ -180,7 +181,7 @@ export class SiteLabel {
     if (near === this.near) return;
     this.near = near;
     this.el.classList.toggle('near', near);
-    this.prompt.textContent = near ? (touch ? 'Tap to play' : 'Press Space to play') : '';
+    this.prompt.textContent = near ? (touch ? `Tap to ${this.verb}` : `Press Space to ${this.verb}`) : '';
   }
 
   // anchor: world position over the site; show: false hides it (while a game runs)

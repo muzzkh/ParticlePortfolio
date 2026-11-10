@@ -26,8 +26,8 @@ const TIPS = [
 ];
 const GAME_LINES = {
   worm: (dir) => `Someone keeps a young worm in the pit to the ${dir}.`,
-  run: (dir) => `They race the flagged track to the ${dir}. Mind the boulders.`,
-  fly: (dir) => `There is a thopter at the airfield, ${dir} of here. They let anyone fly it.`,
+  ride: (dir) => `There is a thopter on the pad to the ${dir}. They let anyone fly it.`,
+  race: (dir) => `They race sandbikes on the course to the ${dir}. Three laps, and the riders don't wait.`,
 };
 
 // which way (dx, dz) lies, in words; north is −z, east is +x (as on the map)

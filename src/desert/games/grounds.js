@@ -1,16 +1,22 @@
 import { WormPit } from './wormpit.js';
-import { DuneRun } from './dunerun.js';
-import { Airfield } from './airfield.js';
+import { ThopterRide } from './thopter.js';
+import { SandRace } from './race.js';
 import { GameHud, SiteLabel, loadBest, saveBest } from './common.js';
 
 // The games are places in the desert, off to one side of where visitors start: the
-// Worm Pit, the Dune Run and the Airfield. Walk onto a site's glowing ring (or pick its
-// label) and press Space or tap to play. Each game runs in the world itself, with the
-// camera, the walker and the sand; Esc (or Leave) hands the desert back.
+// Worm Pit, an ornithopter to fly (the Thopter Ride) and the Sand Race. Walk onto a
+// site's glowing ring (or pick its label) and press Space or tap to play. Each runs in
+// the world itself, with the camera, the walker and the sand; Esc (or Leave) hands the
+// desert back.
+//
+// A site's step() returns 'crash' (the game is lost), 'finish' (it's over, and the
+// site's result() says how it went) or 'done' (nothing to score: back to the desert).
+// meta.ready: seconds of "get ready"; meta.noBest: no score kept; meta.lowBest: lower
+// is better (a time); meta.fmt: how to show a score; meta.verb: what Space does there.
 
-const READY = 1.6; // seconds of "get ready"
+const READY = 1.6;
 const NEAR = 1.7; // how close to a start ring counts as standing on it
-const LOSE = { worm: 'The pit takes the worm', run: 'Down in the sand', fly: 'Brought down' };
+const LOSE = { worm: 'The pit takes the worm' };
 
 export class GameGrounds {
   // deps: { scene, particles, trails, audio, tint(), rockMaterial, player, labelLayer,
@@ -33,12 +39,12 @@ export class GameGrounds {
       },
     };
     const ctx = { scene: deps.scene, particles: deps.particles, trails: deps.trails, audio, tint: deps.tint, rockMaterial: deps.rockMaterial };
-    this.sites = [new WormPit(ctx), new DuneRun(ctx), new Airfield(ctx)];
+    this.sites = [new WormPit(ctx), new ThopterRide(ctx), new SandRace(ctx)];
     this.byId = new Map(this.sites.map((s) => [s.constructor.meta.id, s]));
     this.best = loadBest();
     this.touchMode = window.matchMedia('(pointer: coarse)').matches;
     this.hud = new GameHud(
-      () => this.stop(),
+      () => this.requestLeave(),
       (id, down) => {
         if (!this.active) return;
         if (this.state === 'over' && down) return this.restart();
@@ -77,7 +83,10 @@ export class GameGrounds {
         this.hud.setScore(`${this.score} spice`);
       },
       thrum: (v) => (this.thrum = v),
-      // tall phone screens get a calmer, roomier flight
+      // the big message in the middle of the screen
+      say: (big, small = '') => this.hud.message(big, small),
+      // which way the camera looks (for controls that follow the screen)
+      camYaw: () => (deps.camYaw ? deps.camYaw() : 0),
       portrait: () => window.innerWidth / window.innerHeight < 0.85,
     };
   }
@@ -88,17 +97,22 @@ export class GameGrounds {
 
   _kicker(site) {
     const meta = this.meta(site);
-    const b = this.best[meta.id];
-    this.labels.get(site).setKicker(b ? `${meta.kicker} · best ${b}` : meta.kicker);
+    const b = meta.noBest ? 0 : this.best[meta.id];
+    this.labels.get(site).setKicker(b ? `${meta.kicker} · best ${this._fmt(meta, b)}` : meta.kicker);
   }
 
-  // Off to the right of the starting view: the pit straight out, the run and the
-  // airfield either side of it, each heading away from where visitors start.
+  _fmt(meta, v) {
+    return meta.fmt ? meta.fmt(v) : String(v);
+  }
+
+  // Off to the right of the starting view: the pit straight out, the ornithopter's pad
+  // to one side, and the race's start line on the other with its course looping out
+  // beyond it, each heading away from where visitors start.
   // settings: site.json `games` ({ worm: { hidden, place: { dx, dz, rot } }, … })
   layout(sx, sz, roadHeading, settings = {}) {
     const gh = roadHeading - Math.PI / 2;
     // [direction from the start, distance, turn of the course toward the open erg]
-    const auto = { worm: [gh, 28, 0], run: [gh - 0.9, 21, 0.55], fly: [gh + 0.9, 22, -0.55] };
+    const auto = { worm: [gh, 28, 0], ride: [gh + 0.9, 22, -0.55], race: [gh - 0.62, 52, 0] };
     this.spawn = { x: sx, z: sz };
     this.hidden.clear();
     for (const site of this.sites) {
@@ -152,7 +166,7 @@ export class GameGrounds {
   // start", in degrees.
   editSites() {
     if (!this.handles) {
-      const RADIUS = { worm: 9.6, run: 4.2, fly: 3.8 };
+      const RADIUS = { worm: 9.6, ride: 3.8, race: 5 };
       this.handles = this.sites.map((site) => {
         const id = this.meta(site).id;
         return {
@@ -216,8 +230,7 @@ export class GameGrounds {
     this.active = site;
     const meta = this.meta(site);
     this.hud.show(meta.title);
-    const sideways = this.touchMode && meta.id === 'fly' && this.api.portrait() ? ' · turn your phone sideways for a wider view' : '';
-    this.hud.setHint((this.touchMode ? meta.touchKeys : meta.keys) + sideways);
+    this.hud.setHint(this.touchMode ? meta.touchKeys : meta.keys);
     this.hud.buttons(this.touchMode ? meta.buttons : []);
     this.deps.onStart(site);
     this._ready();
@@ -226,7 +239,7 @@ export class GameGrounds {
   _ready() {
     const meta = this.meta(this.active);
     this.state = 'ready';
-    this.timer = READY;
+    this.timer = meta.ready ?? READY;
     this.score = 0;
     this.newBest = false;
     this.hud.setScore('');
@@ -237,6 +250,13 @@ export class GameGrounds {
   restart() {
     if (this.state !== 'over' || this.timer > 0) return;
     this._ready();
+  }
+
+  // Esc or Leave: a site can ask for a moment first (the ornithopter lands)
+  requestLeave() {
+    if (!this.active) return;
+    if (this.state === 'play' && this.active.leave && this.active.leave()) return;
+    this.stop();
   }
 
   // stay: leave the walker where it is (a new world is coming anyway)
@@ -250,32 +270,40 @@ export class GameGrounds {
     this.thrum = 0;
     this.deps.onEnd(site);
     // back to the start ring if the game took you away from it
+    // (or beside wherever you left it: the ornithopter)
     const p = this.deps.player.pos;
     const sp = site.startPoint;
-    const face = Math.atan2(site.pos.x - sp.x, site.pos.z - sp.z);
-    if (!stay && Math.hypot(p.x - sp.x, p.z - sp.z) > 4) this.deps.teleport(sp.x, sp.z, face, true);
+    const out = site.exitPoint ? site.exitPoint() : { x: sp.x, z: sp.z, yaw: Math.atan2(site.pos.x - sp.x, site.pos.z - sp.z) };
+    if (!stay && Math.hypot(p.x - out.x, p.z - out.z) > 4) this.deps.teleport(out.x, out.z, out.yaw, true);
   }
 
-  _lose() {
-    const meta = this.meta(this.active);
+  // the game is over: lost (no result), or finished with a result from the site
+  // ({ score, big, line })
+  _over(result = null) {
+    const site = this.active;
+    const meta = this.meta(site);
     this.state = 'over';
     this.timer = 0.7;
-    const best = this.best[meta.id] || 0;
-    if (this.score > best) {
+    if (result) this.score = result.score;
+    const best = this.best[meta.id];
+    const better = !meta.noBest && (best === undefined || best === null || (meta.lowBest ? this.score < best : this.score > best));
+    if (better && (meta.lowBest || this.score > 0)) {
       this.best[meta.id] = this.score;
       saveBest(this.best);
       this.newBest = true;
-      this._kicker(this.active);
+      this._kicker(site);
     }
     const again = this.touchMode ? 'Tap to go again' : 'Space to go again · Esc to leave';
-    this.hud.message(this.newBest ? 'New best!' : LOSE[meta.id] || 'Game over', `${this.hud.score.textContent || this.score} · best ${this.best[meta.id] || 0} · ${again}`);
+    const bestText = this.newBest && result ? 'a new best!' : `best ${this._fmt(meta, this.best[meta.id] || 0)}`;
+    if (result) this.hud.message(result.big, `${result.line} · ${bestText} · ${again}`);
+    else this.hud.message(this.newBest ? 'New best!' : LOSE[meta.id] || 'Game over', `${this.hud.score.textContent || this.score} · ${bestText} · ${again}`);
   }
 
   // a key while a game runs: true when the game used it
   key(e, down) {
     if (!this.active) return false;
     if (e.code === 'Escape') {
-      if (down) this.stop();
+      if (down && !e.repeat) this.requestLeave();
       return true;
     }
     if (this.state === 'over') {
@@ -336,6 +364,11 @@ export class GameGrounds {
     return this.active.walker(this.state, this.deps.player);
   }
 
+  // true while the game running leaves the camera's turn to the visitor
+  freeView() {
+    return !!this.active && this.active.view.yaw === null;
+  }
+
   view(aspect) {
     if (!this.active) return null;
     this.active.updateView(aspect, this.deps.player);
@@ -354,7 +387,9 @@ export class GameGrounds {
         this.timer -= dt;
       }
       const r = this.active.step(dt, t, this.state, this.api);
-      if (r === 'crash' && this.state === 'play') this._lose();
+      if (r === 'crash' && this.state === 'play') this._over();
+      else if (r === 'finish' && this.state === 'play') this._over(this.active.result());
+      else if (r === 'done') this.stop();
     } else {
       this.thrum += (0 - this.thrum) * (1 - Math.exp(-dt * 3));
     }
@@ -368,7 +403,8 @@ export class GameGrounds {
     if (near !== this.nearSite) {
       this.play.hidden = !near;
       if (near) {
-        this.play.replaceChildren(document.createTextNode(`Play ${this.meta(near).title}`));
+        const m = this.meta(near);
+        this.play.replaceChildren(document.createTextNode(m.action || `Play ${m.title}`));
         if (!this.touchMode) {
           const k = document.createElement('kbd');
           k.textContent = 'Space';

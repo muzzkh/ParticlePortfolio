@@ -3,8 +3,8 @@
 
 export const GAMES = [
   { id: 'worm', title: 'Worm Pit', kind: 'Sandworm', blurb: 'A ring of stone teeth where visitors steer a young worm: swallow spice, grow, and keep off the stones and their own tail.' },
-  { id: 'run', title: 'Dune Run', kind: 'Runner', blurb: 'A flagged track out across the erg. The walker sprints on their own; visitors pick the lane and jump the ridges.' },
-  { id: 'fly', title: 'Airfield', kind: 'Ornithopter', blurb: 'An ornithopter on a stone pad. Visitors fly it out under a storm, threading the gaps between spires and hanging rock.' },
+  { id: 'ride', title: 'Thopter Ride', kind: 'Vehicle', blurb: 'An ornithopter on a stone pad. Visitors climb aboard and fly it anywhere, set it down where they like, and it waits for them there.' },
+  { id: 'race', title: 'Sand Race', kind: 'Race', blurb: 'Three laps on sandbikes against three riders, round a marked course that is a new shape every race. The time to beat is kept.' },
 ];
 
 // drop empty settings, so turning something off and on again leaves no change behind

@@ -200,7 +200,7 @@ function applyIntro() {
     `${NUMBER_WORDS[stones] ?? stones} waystones stand in the deep desert, one for every chapter of the road so far.` +
       (pads ? ` The other way, ${pads > 1 ? 'landing pads hold' : 'a landing pad holds'} what I'm building now.` : '') +
       ' Walk out and read them.' +
-      (['worm', 'run', 'fly'].some((id) => !(site.games && site.games[id] && site.games[id].hidden)) ? ' Off to one side, there are games to play.' : '');
+      (['worm', 'ride', 'race'].some((id) => !(site.games && site.games[id] && site.games[id].hidden)) ? ' Off to one side, there are games to play.' : '');
   document.getElementById('introLinks').replaceChildren(...contactLinks({ profile, site: site.site || {} }));
 }
 applyIntro();
@@ -656,6 +656,8 @@ window.addEventListener('keydown', (e) => {
   if (games.active) {
     if (games.key(e, true)) e.preventDefault();
     else if (!e.repeat && e.code === 'KeyM') toggleSound();
+    // games that leave the view free (the ornithopter) can still turn it
+    else if (!e.repeat && (e.code === 'KeyQ' || e.code === 'KeyE') && games.freeView()) cam.yawTarget += (e.code === 'KeyQ' ? -1 : 1) * (Math.PI / 4);
     else if (!e.repeat && e.code === 'KeyH') ui.toggleHidden();
     return;
   }
@@ -947,6 +949,7 @@ const games = new GameGrounds({
   tint: () => atmos.litTint,
   rockMaterial: rocks.material,
   player,
+  camYaw: () => cam.yaw,
   labelLayer: document.getElementById('labels'),
   teleport: (x, z, yaw, fade) => {
     const go = () => {
@@ -1059,6 +1062,7 @@ function updateMinimap() {
     sx: g.startPoint.x,
     sz: g.startPoint.z,
     r: games.meta(g).id === 'worm' ? 9.4 : 3.4,
+    path: g.mapPath ? g.mapPath() : null,
   }));
   m.rocks = rocks.colliders;
   m.worm = worm.active && worm.state === 'approach' ? { x: worm.head.x, z: worm.head.z } : null;
@@ -1526,7 +1530,7 @@ function frame(now) {
   let inp = readInput(t);
   const gw = games.walker();
   if (gw) {
-    // a game drives the walker (the run), holds it still, or has it aboard (the flight)
+    // a game drives the walker, holds it still, or has it aboard (the ornithopter, a bike)
     inp = gw.input || HOLD;
     player.root.visible = !gw.hidden;
     player.rhythm = 0; // no worms while you play

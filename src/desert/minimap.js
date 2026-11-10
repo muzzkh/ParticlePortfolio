@@ -79,7 +79,10 @@ export class Minimap {
     if (s) {
       let far = 30;
       for (const st of s.stones) far = Math.max(far, Math.hypot(st.x - s.px, st.z - s.pz));
-      for (const g of s.games) far = Math.max(far, Math.hypot(g.x - s.px, g.z - s.pz) + g.r);
+      for (const g of s.games) {
+        far = Math.max(far, Math.hypot(g.x - s.px, g.z - s.pz) + g.r);
+        for (const p of g.path || []) far = Math.max(far, Math.hypot(p.x - s.px, p.z - s.pz));
+      }
       this.fullRadius = Math.min(260, Math.max(45, far + 14));
     }
     this.full.hidden = false;
@@ -240,8 +243,17 @@ export class Minimap {
     }
     ctx.setLineDash([]);
 
-    // the games
+    // the games (and the race's course)
     for (const g of s.games) {
+      if (g.path && g.path.length > 2) {
+        ctx.strokeStyle = 'rgba(255, 170, 90, 0.5)';
+        ctx.lineWidth = Math.max(1.5, 9.2 * k);
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        g.path.forEach((p, i) => (i ? ctx.lineTo(mx(p.x, p.z), my(p.x, p.z)) : ctx.moveTo(mx(p.x, p.z), my(p.x, p.z))));
+        ctx.closePath();
+        ctx.stroke();
+      }
       const x = mx(g.x, g.z);
       const y = my(g.x, g.z);
       ctx.strokeStyle = GAME;
