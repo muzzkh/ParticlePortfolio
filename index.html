@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Muzzamil Khan — Software Engineer</title>
+    <meta
+      name="description"
+      content="Muzzamil Khan, Software Engineer. An interactive résumé: walk a procedurally generated desert and read each chapter from the waystones along the road."
+    />
+    <!-- Only this site's own scripts run; no inline script, no plugins, no forms.
+         Images may come from https (content can link them); fonts from Google Fonts. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob:; connect-src 'self' blob: data: ws://localhost:* ws://127.0.0.1:*; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'" />
+    <meta name="theme-color" content="#1a0f08" />
+    <meta name="color-scheme" content="dark" />
+    <!-- paint the desert's dark backdrop from the very first frame, before any stylesheet -->
+    <style>html,body{background:#1a0f08}</style>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Muzzamil Khan — Software Engineer" />
+    <meta property="og:description" content="An interactive résumé set in a procedurally generated desert. Walk the road and read the waystones." />
+    <link rel="icon" type="image/svg+xml" href="./waystone.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Web fonts load without holding up the page: where Google Fonts is slow or
+         blocked, the site still opens (with system fonts) instead of waiting on it. -->
+    <link
+      id="fonts"
+      href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Syncopate:wght@400;700&display=swap"
+      rel="stylesheet"
+      media="print"
+    />
+    <script defer src="./boot.js"></script>
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Syncopate:wght@400;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
+    <script type="module" crossorigin src="/assets/main-ot2IQFG0.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/content-BvgH6J5U.js">
+    <link rel="stylesheet" crossorigin href="/assets/main-CarTFr-Q.css">
+  </head>
+  <body>
+    <canvas id="scene" aria-label="A procedurally generated desert with résumé waystones"></canvas>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <header class="brand">
+        <div class="wordmark" id="wordmark">Muzzamil Khan</div>
+        <div class="sub"><span id="region">The Deep Desert</span> · <span id="clock">16:54</span><span id="spiceCount" class="spice-count" hidden></span></div>
+      </header>
+
+      <div id="labels" aria-hidden="true"></div>
+
+      <aside class="codex" id="codex" aria-label="Résumé">
+        <button class="codex-head" id="codexHead" type="button" aria-expanded="true" aria-controls="codexBody">
+          <span class="codex-title">Résumé</span>
+          <span class="codex-count"><b id="codexFound">0</b> / <span id="codexTotal">0</span> found</span>
+          <span class="codex-chev" aria-hidden="true"></span>
+        </button>
+        <div class="codex-bar" aria-hidden="true"><i id="codexBar"></i></div>
+        <nav class="codex-links" id="codexLinks" aria-label="Contact and downloads"></nav>
+        <div class="codex-scroll">
+          <div class="codex-body" id="codexBody"></div>
+        </div>
+      </aside>
+
+      <article id="dossier" class="dossier" aria-hidden="true" aria-labelledby="dsTitle" inert>
+        <button id="dsGrip" class="ds-grip" type="button" aria-label="Show more of this card" aria-expanded="false"><span></span></button>
+        <header class="ds-head">
+          <div class="ds-kicker"><span id="dsMark" class="ds-mark"></span><span id="dsKind"></span><span class="ds-years" id="dsYears"></span></div>
+          <button id="dsExpand" class="ds-expand" type="button" aria-label="Show more of this card" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
+          </button>
+          <button id="dsClose" class="ds-close" type="button" aria-label="Close (Esc)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+          <h2 id="dsTitle"></h2>
+          <div class="ds-org" id="dsOrg"></div>
+          <div class="ds-period" id="dsPeriod"></div>
+        </header>
+        <div class="ds-body" id="dsBody"></div>
+        <footer class="ds-nav">
+          <button id="dsPrev" type="button" title="Previous waystone (,)">‹ Previous</button>
+          <span id="dsPos"></span>
+          <button id="dsNext" type="button" title="Next waystone (.)">Next ›</button>
+        </footer>
+      </article>
+
+      <aside class="panel" id="panel">
+        <div class="panel-row">
+          <label for="time">Sun</label>
+          <input type="range" id="time" min="0" max="24" step="0.01" value="16.9" />
+          <output id="timeOut">16:54</output>
+        </div>
+        <div class="buttons">
+          <button id="btnThumper" type="button" title="Plant a thumper (T)"><span>Thumper</span><kbd>T</kbd></button>
+          <button id="btnSandwalk" type="button" title="Walk without rhythm (C)"><span>Sandwalk</span><kbd>C</kbd></button>
+          <button id="btnStorm" type="button" title="Summon a Coriolis storm (G)"><span>Storm</span><kbd>G</kbd></button>
+          <button id="btnSeed" type="button" title="Generate a new erg (N)"><span>New erg</span><kbd>N</kbd></button>
+          <button id="btnArcade" type="button" title="Walk to the games: the Worm Pit, the Thopter Ride and the Sand Race (P)"><span>Games</span><kbd>P</kbd></button>
+          <button id="btnAtomics" type="button" title="Requires launch codes"><span>Atomics</span><kbd aria-hidden="true">☢</kbd></button>
+          <button id="btnSound" type="button" title="Sound on/off (M)"><span>Sound</span><kbd>M</kbd></button>
+        </div>
+      </aside>
+
+      <div class="rhythm" id="rhythm">
+        <div class="rhythm-head">
+          <span class="label">Rhythm</span>
+          <span class="state" id="rhythmState">Still</span>
+        </div>
+        <canvas id="rhythmWave" width="220" height="34"></canvas>
+      </div>
+
+      <div id="wormsign" aria-live="polite">
+        <div class="ws-title">Wormsign</div>
+        <div class="ws-dist"><span id="wsArrow">➤</span> <span id="wsDist">—</span></div>
+      </div>
+
+      <div id="toast" aria-live="polite"></div>
+
+      <div class="mapw" id="mapw">
+        <div class="zoom" role="group" aria-label="Zoom">
+          <button id="zoomIn" type="button" title="Zoom in (=)" aria-label="Zoom in">+</button>
+          <button id="zoomOut" type="button" title="Zoom out (−)" aria-label="Zoom out">−</button>
+        </div>
+        <button class="minimap" id="minimap" type="button" title="Open the map" aria-label="Open the map"><canvas id="minimapCanvas"></canvas></button>
+      </div>
+
+      <footer class="keys" id="keys">
+        <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · <kbd>Shift</kbd> run</div>
+        <div><kbd>Click</kbd> walk to · <kbd>Dbl</kbd> run to</div>
+        <div><kbd>R</kbd> résumé · <kbd>,</kbd><kbd>.</kbd> prev / next · <kbd>Esc</kbd> close</div>
+        <div><kbd>Space</kbd> leap · <kbd>P</kbd> games (<kbd>Space</kbd> on a ring plays)</div>
+        <div><kbd>Q</kbd><kbd>E</kbd> turn view · <kbd>Scroll</kbd> <kbd>−</kbd><kbd>=</kbd> zoom</div>
+        <div><kbd>H</kbd> hide interface</div>
+      </footer>
+    </div>
+
+    <!-- Intro -->
+    <section id="intro">
+      <div class="intro-inner">
+        <div class="eyebrow" id="introTitle">Computer Engineer</div>
+        <h1 id="introName">Muzzamil Khan</h1>
+        <p class="lede" id="introLede">Waystones stand in the deep desert, one for every chapter of the road so far. Walk out and read them.</p>
+        <div class="intro-actions">
+          <button id="enter" type="button">Enter the desert</button>
+          <button id="enterRead" class="ghost" type="button">Read the résumé</button>
+        </div>
+        <ul class="intro-keys">
+          <li><b>WASD</b> or click to walk</li>
+          <li><b>Shift</b> to run</li>
+          <li><b>R</b> résumé index</li>
+          <li><b>Space</b> to leap</li>
+        </ul>
+        <nav class="intro-links" id="introLinks" aria-label="Contact and downloads"></nav>
+      </div>
+    </section>
+
+    <!-- Map -->
+    <div id="mapFull" class="map-full" role="dialog" aria-modal="true" aria-label="Map" hidden>
+      <div class="mf-box">
+        <canvas id="mapCanvas" aria-label="Map of the desert around you"></canvas>
+        <div class="mf-tools">
+          <button id="mapIn" type="button" aria-label="Zoom the map in">+</button>
+          <button id="mapOut" type="button" aria-label="Zoom the map out">−</button>
+          <button id="mapClose" type="button" aria-label="Close the map (Esc)">✕</button>
+        </div>
+        <div class="mf-legend">
+          <span><i class="lg exp"></i>Experience</span><span><i class="lg edu"></i>Education</span><span><i class="lg proj"></i>Projects</span><span><i class="lg skill"></i>Skills</span><span><i class="lg game"></i>Games</span><span><i class="lg walker"></i>Walkers</span><span><i class="lg spice"></i>Spice</span>
+          <em>Filled once found · tap a stone, a game or the sand to go there</em>
+        </div>
+      </div>
+    </div>
+
+    <div id="fade"></div>
+    <div id="nukeflash" aria-hidden="true"></div>
+
+    <!-- Launch keypad -->
+    <div id="launch" class="launch" role="dialog" aria-modal="true" aria-labelledby="launchTitle" hidden>
+      <div class="launch-box">
+        <div class="launch-kicker">Family atomics</div>
+        <h2 id="launchTitle">Enter launch codes</h2>
+        <div class="launch-code empty" id="launchCode" aria-live="polite"></div>
+        <div class="launch-pad" id="launchPad"></div>
+        <div class="launch-msg" id="launchMsg" aria-live="polite"></div>
+        <button id="launchCancel" class="launch-cancel" type="button">Cancel</button>
+      </div>
+    </div>
+
+    <noscript>
+      <div class="noscript">
+        <p>This résumé is an interactive desert and needs JavaScript and WebGL.</p>
+        <p><a href="./Muzzamil_Khan_Resume.pdf">Download the résumé (PDF)</a></p>
+      </div>
+    </noscript>
+
+  </body>
+</html>
