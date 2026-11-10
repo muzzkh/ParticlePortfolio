@@ -937,6 +937,18 @@ select.i-input {
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
+.i-with-swatch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.i-swatch {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 1px solid var(--line-2);
+  border-radius: 50%;
+}
 .i-choices {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

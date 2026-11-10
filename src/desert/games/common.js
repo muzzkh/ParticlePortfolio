@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { groundHeight } from '../noise.js';
 
+export { mulberry32 } from '../rng.js';
+
 // Shared pieces of the games that live in the desert: best scores, the small HUD,
 // glowing start rings that hug the sand, spice orbs, and the floating site labels.
 
@@ -22,15 +24,6 @@ export function saveBest(best) {
   }
 }
 
-export function mulberry32(a) {
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 export const TAU = Math.PI * 2;
 

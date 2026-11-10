@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { groundHeight } from '../noise.js';
 import { makeRockGeometry } from '../rocks.js';
 import { groundRing, spiceOrb, mulberry32 } from './common.js';
+import { freshSeed } from '../rng.js';
 
 // The Dune Run: a flagged track leading out across the open erg. The walker sprints on
 // their own; you pick the lane and the moment to jump. Rock ridges can be jumped,
@@ -205,6 +206,7 @@ export class DuneRun {
 
   // ---------------------------------------------------------------- the game
   reset(api) {
+    this.rng = mulberry32(freshSeed()); // a new course every run
     for (const r of this.rows) this._free(r);
     this.rows = [];
     this.lane = 0;

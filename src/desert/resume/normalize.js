@@ -9,7 +9,42 @@ export const KINDS = {
   skills: { label: 'Toolkit', group: 'Toolkit', glyph: 'triangle' },
 };
 
-export const MODEL_TYPES = ['ornithopter', 'pod', 'glb'];
+export const MODEL_TYPES = ['ornithopter', 'rover', 'core', 'dish', 'pod', 'glb'];
+
+// Projects can be given a category. These come with their own colours (on the pad's
+// lights, the label, the card and the map); any other name gets a colour of its own,
+// the same every time.
+export const CATEGORIES = [
+  { name: 'Robotics', color: '#62d6c5' },
+  { name: 'Software', color: '#8ccfff' },
+  { name: 'AI / ML', color: '#c9a2ff' },
+  { name: 'Hardware', color: '#ffb46b' },
+  { name: 'Research', color: '#f3d27e' },
+  { name: 'Web', color: '#9be38f' },
+  { name: 'Games', color: '#ff8fa3' },
+];
+const PROJECT_COLOR = '#8fe3b5';
+
+function hslHex(h, s, l) {
+  const f = (n) => {
+    const k = (n + h / 30) % 12;
+    const c = l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255)
+      .toString(16)
+      .padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+export function categoryOf(name) {
+  const n = String(name || '').trim();
+  if (!n) return { name: '', color: PROJECT_COLOR };
+  const known = CATEGORIES.find((c) => c.name.toLowerCase() === n.toLowerCase());
+  if (known) return known;
+  let h = 2166136261;
+  for (let i = 0; i < n.length; i++) h = Math.imul(h ^ n.toLowerCase().charCodeAt(i), 16777619);
+  return { name: n, color: hslHex((h >>> 0) % 360, 0.62, 0.72) };
+}
 
 export function slug(s) {
   return String(s)
@@ -47,6 +82,7 @@ export function prepareEntries(site) {
       period: e.period || '',
       years: e.years || (project ? e.status || '' : yearSpan(e.period)),
       location: e.location || '',
+      category: project ? categoryOf(e.category).name : '',
       lede: e.summary || '',
       bullets: list(e.bullets),
       body: e.body || '',

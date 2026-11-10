@@ -653,6 +653,24 @@ input[type='range']::-moz-range-thumb {
   text-transform: uppercase;
   color: var(--ink-faint);
 }
+.codex-sub-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 0 2px 14px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--k, var(--ink-dim));
+}
+.codex-sub-label::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--k, var(--ink-dim));
+}
 .ci {
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr) auto;
@@ -1376,6 +1394,61 @@ body:not(.editing) .edit-label {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+/* ------------------------------------------------------------------ life */
+/* what another walker says, over their head */
+.say {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: min(240px, 60vw);
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px 12px 12px 3px;
+  background: rgba(24, 13, 6, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff1dd;
+  font: italic 500 16px/1.25 var(--serif);
+  text-align: center;
+  text-shadow: none;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.35s ease, visibility 0.35s;
+  will-change: transform;
+}
+.say.on {
+  opacity: 1;
+  visibility: visible;
+}
+body.gaming .say,
+body.reading .say {
+  opacity: 0;
+}
+.spice-count {
+  color: #ffb066;
+  font-variant-numeric: tabular-nums;
+}
+.spice-count.bump {
+  animation: spice-bump 0.5s ease;
+}
+@keyframes spice-bump {
+  30% {
+    color: #fff;
+    text-shadow: 0 0 12px #ff9a3d;
+  }
+}
+.lg.walker {
+  background: #e8d9c2;
+  border-radius: 50%;
+}
+.lg.spice {
+  width: 6px;
+  height: 6px;
+  background: #ff9a3d;
+  border-radius: 50%;
 }
 
 /* ------------------------------------------------------------------ minimap, zoom, map */

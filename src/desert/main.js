@@ -14,12 +14,14 @@ import { Waystones, SAFE_MARGIN } from './waystones.js';
 import { Codex, contactLinks } from './codex.js';
 import { prepareEntries } from './resume/normalize.js';
 import initialSite from './resume/content.js';
-import { setAssetOverrides } from './assets.js';
+import { setAssetOverrides, ownBlobUrl } from './assets.js';
 import { createEditMode } from './editmode.js';
 import { GameGrounds } from './games/grounds.js';
 import { Minimap } from './minimap.js';
+import { Life, lifeSettings } from './life/index.js';
 import { Atomics, LaunchKey, strikeTargets } from './atomics.js';
 import { LaunchPad } from './launchpad.js';
+import { mulberry32 } from './rng.js';
 
 // ---------------------------------------------------------------------------
 // Renderer & core objects
@@ -75,7 +77,7 @@ function previewContent() {
   try {
     const p = JSON.parse(localStorage.getItem('arrakis.preview'));
     if (!p || !p.site || !p.site.profile || !Array.isArray(p.site.entries)) return null;
-    setAssetOverrides(new Map(p.overrides || []));
+    setAssetOverrides(new Map((Array.isArray(p.overrides) ? p.overrides : []).filter((o) => Array.isArray(o) && typeof o[0] === 'string' && ownBlobUrl(o[1]))));
     return p.site;
   } catch {
     return null;
@@ -115,15 +117,6 @@ const REGIONS = [
   'Plaster Basin',
   'Red Chasm Sands',
 ];
-function mulberry32(a) {
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 let seedValue = 0;
 function applySeed(seed) {
   seedValue = seed >>> 0;
@@ -322,7 +315,7 @@ function updateWaystones(dt, t, vr) {
     particles,
     tint: atmos.litTint,
   });
-  audio.thopter(Math.max(waystones.thrum, games.thrum));
+  audio.thopter(Math.max(waystones.thrum, games.thrum, life ? life.thrum : 0));
   const s = near.stone;
   const id = entered && s && near.rel < 0 ? s.entry.id : null;
   if (id !== nearId) {
@@ -376,7 +369,15 @@ function layoutRoad(x, z) {
     rocks.setExclusion((px, pz, rr) => games.corridor(px, pz, rr));
   }
   waystones.layout(x, z, heading, (px, pz, m) => rocks.nearRock(px, pz, m) || games.keepsClear(px, pz, m));
+  // everyone else in the desert takes new places around the new layout
+  if (life) {
+    life.configure(lifeSettings(site.world, SMALL));
+    life.reset(spawnPoint);
+  }
+  dayMinutes = site.world && Number.isFinite(site.world.cycle) ? Math.max(0, site.world.cycle) : 24;
 }
+const SMALL = window.matchMedia('(pointer: coarse)').matches || Math.min(window.innerWidth, window.innerHeight) < 500;
+let dayMinutes = 24; // real minutes for the sun to go once round (0: it stands still)
 let gamesLayoutKey = '';
 
 const _anchor = new THREE.Vector3();
@@ -423,7 +424,9 @@ function toggleSandwalk() {
 
 let stormTarget = 0;
 let storm = 0;
+let squallLeft = 0; // a squall the desert raised by itself
 function toggleStorm() {
+  squallLeft = 0;
   stormTarget = stormTarget > 0.5 ? 0 : 1;
   ui.setToggle('storm', stormTarget > 0.5);
   ui.toast(stormTarget > 0.5 ? 'A Coriolis storm rolls in over the erg.' : 'The storm passes.', 3.5);
@@ -660,6 +663,8 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+  // Space, anywhere else: a leap
+  if (e.code === 'Space' && !e.repeat && entered && player.jump(5.2)) audio.blip('hop');
   keys.add(e.code);
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   if (e.repeat || !entered) return;
@@ -1059,8 +1064,54 @@ function updateMinimap() {
   m.worm = worm.active && worm.state === 'approach' ? { x: worm.head.x, z: worm.head.z } : null;
   m.spawn = spawnPoint;
   m.compactRadius = window.innerWidth <= 760 ? 48 : 62;
+  m.walkers = life ? life.walkers.list : [];
+  m.spice = life ? life.spice.patches : [];
   minimap.update(m);
 }
+
+// ---------------------------------------------------------------------------
+// Life: other walkers, wildlife, spice and things that happen by themselves
+// ---------------------------------------------------------------------------
+const life = EDIT
+  ? null
+  : new Life({
+      scene,
+      camera,
+      particles,
+      trails,
+      audio,
+      player,
+      labelLayer: document.getElementById('labels'),
+      tint: () => atmos.litTint,
+      wind: () => wind.vel,
+      toast: (text, s) => ui.toast(text, s),
+      shake: (x, z, k) => {
+        const d = Math.hypot(x - player.pos.x, z - player.pos.z);
+        cam.shake = Math.max(cam.shake, k * Math.max(0, 1 - d / 45));
+      },
+      // a squall only blows when you haven't called a storm yourself
+      squall: (seconds) => {
+        if (stormTarget > 0.5 || squallLeft > 0) return false;
+        squallLeft = seconds;
+        return true;
+      },
+      collide: (pos, r, vel) => {
+        rocks.collide(pos, r, vel);
+        waystones.collide(pos, r, vel);
+        games.collide(pos, r, vel);
+      },
+      blocked: (x, z, m) => rocks.nearRock(x, z, m) || waystones.nearStone(x, z, m) || games.keepsClear(x, z, m),
+      stones: () => waystones.stones,
+      games: () => games.visible().map((g) => ({ id: games.meta(g).id, x: g.pos.x, z: g.pos.z, sx: g.startPoint.x, sz: g.startPoint.z })),
+      // what the other walkers can talk about
+      talk: () => ({
+        night: atmos.isNight,
+        name: (site.profile && site.profile.name) || '',
+        total: waystones.stones.length,
+        unfound: waystones.stones.filter((s) => !s.found).map((s) => ({ title: s.entry.title, kind: s.kind, x: s.x, z: s.z })),
+        games: games.visible().map((g) => ({ id: games.meta(g).id, x: g.pos.x, z: g.pos.z })),
+      }),
+    });
 
 // P and the Games button: head for the games, one site after another
 function goToGames() {
@@ -1238,6 +1289,12 @@ function updateWorm(dt, t) {
   mound.amp += (ampTarget - mound.amp) * (1 - Math.exp(-dt * 2.5));
   terrain.uniforms.uWorm.value.set(mound.x, mound.z, mound.amp, mound.r);
   terrain.uniforms.uWormDir.value.set(mound.dx, mound.dz);
+  // with no worm about, far-off wormsign (a passing event) gets to heave the sand
+  const far = !worm.active && mound.amp < 0.02 && life ? life.mound : null;
+  if (far) {
+    terrain.uniforms.uWorm.value.set(far.x, far.z, far.amp, mound.r);
+    terrain.uniforms.uWormDir.value.set(far.dx, far.dz);
+  }
 
   if (worm.active) {
     const tint = atmos.litTint;
@@ -1453,9 +1510,14 @@ function frame(now) {
   simTime += dt;
   const t = simTime;
 
-  // storm easing
+  // the sun moves on by itself once you're out there
+  if (!EDIT && entered && dayMinutes > 0) setTimeOfDay(atmos.time + (dt * 24) / (dayMinutes * 60));
+
+  // storm easing (a squall is half a storm that passes by itself)
+  if (squallLeft > 0) squallLeft -= dt;
   const sPrev = storm;
-  storm += (stormTarget - storm) * (1 - Math.exp(-dt * 0.45));
+  const stormWant = Math.max(stormTarget, squallLeft > 0 ? 0.5 : 0);
+  storm += (stormWant - storm) * (1 - Math.exp(-dt * 0.45));
   if (Math.abs(storm - sPrev) > 1e-5) atmos.setStorm(storm);
 
   updateWind(dt, t);
@@ -1500,6 +1562,17 @@ function frame(now) {
   // ---- waystones and games ----
   updateWaystones(dt, t, vr);
   games.update(dt, t, { px: player.pos.x, pz: player.pos.z, entered, camera });
+  if (life) {
+    life.update(dt, t, {
+      entered,
+      gaming: !!games.active,
+      focus: cam.focus,
+      viewR: vr,
+      night: atmos.isNight,
+      worm: worm.active && worm.state !== 'leave' ? worm.head : null,
+      wormBusy: worm.active,
+    });
+  }
 
 
   // ---- particles ----
@@ -1640,8 +1713,7 @@ window.arrakis = {
   selectStone,
   games,
   minimap,
-  atomics,
-  launchpad,
+  life,
   setPixelRatio: (pr) => {
     pixelRatio = pr;
     resizePending = true;

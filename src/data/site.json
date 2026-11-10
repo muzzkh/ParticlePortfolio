@@ -167,6 +167,7 @@
     {
       "id": "project-ornithopter",
       "kind": "project",
+      "category": "Robotics",
       "title": "Ornithopter",
       "org": "Project",
       "status": "In progress",

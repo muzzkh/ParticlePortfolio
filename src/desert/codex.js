@@ -1,8 +1,8 @@
 // The resume, as HUD: an index of waystones (the codex), a dossier card for the stone
 // you are reading, and labels that float over the stones in the world.
 
-import { KINDS } from './resume/normalize.js';
-import { assetUrl } from './assets.js';
+import { KINDS, categoryOf } from './resume/normalize.js';
+import { assetUrl, safeHref } from './assets.js';
 import { renderMarkdown } from './richtext.js';
 
 const $ = (id) => document.getElementById(id);
@@ -50,7 +50,7 @@ function icon(name) {
 
 function linkItem(href, label, iconName, title) {
   const a = el('a', 'codex-link');
-  a.href = href;
+  a.href = safeHref(href);
   if (/^https?:/.test(href)) {
     a.target = '_blank';
     a.rel = 'noreferrer noopener';
@@ -161,6 +161,24 @@ export class Codex {
     this.labels.clear();
     $('codexTotal').textContent = String(entries.length);
     const groups = new Map();
+    // projects are listed under their categories (in the order the categories first appear)
+    const cats = new Map();
+    const where = (entry) => {
+      const g = groups.get(entry.kind);
+      if (entry.kind !== 'project') return g;
+      const key = entry.category || '';
+      if (!cats.has(key)) {
+        const sub = el('div', 'codex-sub');
+        const label = el('div', 'codex-sub-label', key);
+        label.style.setProperty('--k', categoryOf(key).color);
+        sub.append(label);
+        cats.set(key, { sub, label });
+        g.append(sub);
+      }
+      return cats.get(key).sub;
+    };
+    // what goes under a project's name: its category (or "Project") and its status
+    const subline = (entry) => [entry.kind === 'project' && entry.category ? entry.category : entry.org, entry.years].filter(Boolean).join(' · ');
     for (const entry of entries) {
       if (!groups.has(entry.kind)) {
         const g = el('div', 'codex-group');
@@ -172,7 +190,8 @@ export class Codex {
       b.type = 'button';
       b.dataset.id = entry.id;
       const main = el('span', 'ci-main');
-      main.append(el('span', 'ci-title', entry.title), el('span', 'ci-org', [entry.org, entry.years].filter(Boolean).join(' · ')));
+      main.append(el('span', 'ci-title', entry.title), el('span', 'ci-org', entry.kind === 'project' ? entry.years || entry.org : subline(entry)));
+      if (entry.category) b.style.setProperty('--k', categoryOf(entry.category).color);
       const dir = el('span', 'ci-dir');
       dir.setAttribute('aria-hidden', 'true');
       const arrow = el('i', 'ci-arrow', '➤');
@@ -181,7 +200,7 @@ export class Codex {
       b.append(mark(entry.kind), main, dir);
       b.addEventListener('click', () => handlers.select(entry.id));
       b.addEventListener('mouseup', () => b.blur());
-      groups.get(entry.kind).append(b);
+      where(entry).append(b);
       this.items.set(entry.id, { button: b, arrow, dist, lastDist: -1, lastAngle: 99 });
 
       const lb = el('button', `wl kind-${entry.kind}`);
@@ -189,11 +208,16 @@ export class Codex {
       lb.tabIndex = -1;
       lb.dataset.id = entry.id;
       const top = el('span', 'wl-org');
-      top.append(mark(entry.kind), el('span', null, [entry.org, entry.years].filter(Boolean).join(' · ')));
+      top.append(mark(entry.kind), el('span', null, subline(entry)));
+      if (entry.category) lb.style.setProperty('--k', categoryOf(entry.category).color);
       lb.append(top, el('span', 'wl-title', entry.title));
       lb.addEventListener('click', () => handlers.select(entry.id));
       this.labelLayer.append(lb);
       this.labels.set(entry.id, { el: lb, x: 0, y: 0, a: -1 });
+    }
+    for (const [key, c] of cats) {
+      if (!key) c.label.textContent = cats.size > 1 ? 'Other' : '';
+      c.label.hidden = !c.label.textContent || (cats.size === 1 && !key);
     }
     $('codexLinks').replaceChildren(...contactLinks({ profile, site }));
     const kept = [...this.found].filter((id) => this.items.has(id));
@@ -226,11 +250,13 @@ export class Codex {
     this.currentId = entry.id;
     const d = this.ds;
     this.dossier.className = `dossier kind-${entry.kind}${this.expanded ? ' expanded' : ''}`;
+    if (entry.category) this.dossier.style.setProperty('--k', categoryOf(entry.category).color);
+    else this.dossier.style.removeProperty('--k');
     d.mark.replaceChildren(mark(entry.kind));
-    d.kind.textContent = KINDS[entry.kind]?.label || entry.kind;
+    d.kind.textContent = (KINDS[entry.kind]?.label || entry.kind) + (entry.category ? ` · ${entry.category}` : '');
     d.years.textContent = entry.years || '';
     d.title.textContent = entry.title;
-    d.org.textContent = entry.org === d.kind.textContent ? '' : entry.org;
+    d.org.textContent = entry.org === (KINDS[entry.kind]?.label || entry.kind) ? '' : entry.org;
     d.period.textContent = [entry.period, entry.location].filter(Boolean).join(' · ');
     d.pos.textContent = `${i + 1} / ${this.entries.length}`;
 

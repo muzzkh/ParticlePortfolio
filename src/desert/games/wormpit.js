@@ -87,7 +87,7 @@ export class WormPit {
     this.right = false;
     this.steer = null;
     this.view = { focus: new THREE.Vector3(), yaw: null, pitch: THREE.MathUtils.degToRad(55), height: 20 };
-    this.rng = mulberry32(7);
+    this.rng = mulberry32((Math.random() * 0xffffffff) >>> 0);
   }
 
   // out: unit [x, z] pointing away from where visitors start

@@ -5,7 +5,7 @@
 #
 # Copies arrakis/src into src/desert, arrakis/index.html to ./index.html,
 # arrakis/management/index.html to ./management/index.html and the desert's favicon
-# into public/. (The résumé PDF and everything added at /management live in public/
+# and start-up script into public/. (The résumé PDF and everything added at /management live in public/
 # here.) src/desert/resume/content.js is kept: here it points the desert at
 # src/data/site.json and tells /management to publish to this repository.
 set -euo pipefail
@@ -34,5 +34,6 @@ sed -e 's#\./src/#./src/desert/#g' "$SRC/index.html" > "$ROOT/index.html"
 mkdir -p "$ROOT/management"
 sed -e 's#\.\./src/#../src/desert/#g' "$SRC/management/index.html" > "$ROOT/management/index.html"
 cp "$SRC/public/waystone.svg" "$ROOT/public/waystone.svg"
+cp "$SRC/public/boot.js" "$ROOT/public/boot.js"
 
 echo "Synced the desert from $SRC ($(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo 'unknown rev'))"

@@ -5,6 +5,9 @@ import { PT } from './particles.js';
 import { STAMP } from './trails.js';
 import { Ornithopter, CargoPod } from './ornithopter.js';
 import { GlbModel } from './models.js';
+import { Rover, DataCore, Dish } from './props.js';
+import { categoryOf } from './resume/normalize.js';
+import { mulberry32, hashString } from './rng.js';
 
 const DEG = Math.PI / 180;
 
@@ -49,20 +52,6 @@ const BASALT_MID = new THREE.Color('#463328');
 const BASALT_LIGHT = new THREE.Color('#5c4434');
 const SAND = new THREE.Color('#c99560');
 
-function mulberry32(a) {
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-function hashString(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
-  return h >>> 0;
-}
 function smoothstep(e0, e1, x) {
   const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
   return t * t * (3 - 2 * t);
@@ -335,7 +324,9 @@ export class Waystones {
     pad.position.y = PAD_TOP - 0.3;
     pad.castShadow = true;
     pad.receiveShadow = true;
-    const lineMat = new THREE.MeshBasicMaterial({ color: PAD_LINE.clone() });
+    // the pad's lines and lights take the colour of the project's category
+    const lineColor = entry.category ? new THREE.Color(categoryOf(entry.category).color).multiplyScalar(0.62) : PAD_LINE.clone();
+    const lineMat = new THREE.MeshBasicMaterial({ color: lineColor.clone() });
     const ring = new THREE.Mesh(new THREE.RingGeometry(PAD_R * 0.73, PAD_R * 0.76, 48).rotateX(-Math.PI / 2), lineMat);
     ring.position.y = PAD_TOP + 0.012;
     root.add(pad, ring);
@@ -363,14 +354,15 @@ export class Waystones {
       const post = new THREE.Mesh(postGeo, this.postMat);
       post.position.set(Math.cos(a) * (PAD_R + 0.05), PAD_TOP + 0.25, Math.sin(a) * (PAD_R + 0.05));
       post.castShadow = true;
-      const mat = new THREE.MeshBasicMaterial({ color: PAD_LINE.clone() });
+      const mat = new THREE.MeshBasicMaterial({ color: lineColor.clone() });
       const bulb = new THREE.Mesh(bulbGeo, mat);
       bulb.position.set(post.position.x, PAD_TOP + 0.55, post.position.z);
       root.add(post, bulb);
       bulbs.push(mat);
     }
     const m = entry.model || { type: 'pod', scale: 1, yaw: 0, y: 0, lift: true };
-    const model = m.type === 'ornithopter' ? new Ornithopter() : m.type === 'glb' && m.src ? new GlbModel(m.src, { lift: m.lift }) : new CargoPod();
+    const BUILT_IN = { ornithopter: Ornithopter, rover: Rover, core: DataCore, dish: Dish };
+    const model = BUILT_IN[m.type] ? new BUILT_IN[m.type]() : m.type === 'glb' && m.src ? new GlbModel(m.src, { lift: m.lift }) : new CargoPod();
     model.root.scale.setScalar(m.scale);
     model.root.position.y = PAD_TOP + m.y;
     model.yaw = m.yaw * DEG;
@@ -386,6 +378,8 @@ export class Waystones {
       model,
       modelScale: m.scale,
       canLift: m.lift,
+      flies: model instanceof Ornithopter || model instanceof GlbModel, // raises dust and a wingbeat
+      lineColor,
       lineMat,
       bulbs,
       lift: 0,
@@ -718,13 +712,13 @@ export class Waystones {
     s.h = s.model.height;
     const near = 1 - smoothstep(3, 14, d);
     const k = 0.75 + near * 0.35 + selected * 0.25 + s.pulse * 0.8;
-    s.lineMat.color.copy(PAD_LINE).multiplyScalar(k);
+    s.lineMat.color.copy(s.lineColor).multiplyScalar(k);
     for (let i = 0; i < s.bulbs.length; i++) {
       const b = 0.5 + 0.5 * Math.sin(t * 1.4 - i * 0.785);
-      s.bulbs[i].color.copy(PAD_LINE).multiplyScalar(0.45 + 0.75 * b * k);
+      s.bulbs[i].color.copy(s.lineColor).multiplyScalar(0.45 + 0.75 * b * k);
     }
     // downwash: sand blown out from under the craft
-    if (inView && particles && tint && s.lift > 0.15) {
+    if (s.flies && inView && particles && tint && s.lift > 0.15) {
       s.dustAcc += dt * 26 * s.lift;
       const c = this._c.copy(particles.dustColor).multiply(tint);
       while (s.dustAcc >= 1) {
@@ -737,6 +731,6 @@ export class Waystones {
     } else {
       s.dustAcc = 0;
     }
-    return s.lift * Math.max(0, 1 - d / 40);
+    return s.flies ? s.lift * Math.max(0, 1 - d / 40) : 0;
   }
 }

@@ -41,6 +41,7 @@ public/
   Muzzamil_Khan_Resume.pdf # Linked from the intro screen and the résumé index
   media/, models/          # Images and 3D models added at /management
   waystone.svg             # Favicon (synced from arrakis)
+  boot.js                  # Start-up helpers (synced from arrakis)
 scripts/
   sync-desert.sh           # Pulls the desert in from a muzzkh/arrakis checkout
 src/
@@ -55,6 +56,7 @@ src/
     resume/content.js      # Points at src/data/site.json and this repo (kept across syncs)
     games/                 # The Worm Pit, Dune Run and Airfield, played in the desert
     minimap.js             # The minimap and the full map
+    life/                  # Other walkers, wildlife, spice and passing events
     …                      # terrain, sandworm, walker, ornithopter, atomics, audio
 ```
 
@@ -65,7 +67,9 @@ Use **/management** on the live site. Everything is there: waystones
 details with images, cover images, links and 3D models (`.glb`); the profile,
 intro text, contact links and résumé PDF; and a placement mode where you drag
 stones, pads and the three games around the desert yourself (games can also be
-hidden). **Publish** makes one commit to
+hidden). Projects take a category and one of several built-in models, and
+World → Life sets how many other walkers there are and whether there is
+wildlife, spice and passing events. **Publish** makes one commit to
 `main` here (`src/data/site.json` plus any added files under `public/`), and the
 deploy workflow puts it live in a minute or two. Unpublished work is kept in the
 browser until then.

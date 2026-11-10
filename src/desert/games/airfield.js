@@ -3,6 +3,7 @@ import { groundHeight } from '../noise.js';
 import { makeRockGeometry } from '../rocks.js';
 import { Ornithopter } from '../ornithopter.js';
 import { groundRing, mulberry32 } from './common.js';
+import { freshSeed } from '../rng.js';
 
 // The Airfield: a stone pad with an ornithopter on it. Climb aboard and fly out over the
 // erg, under the wall of a Coriolis storm: hold to beat the wings and climb, let go to
@@ -211,6 +212,7 @@ export class Airfield {
   // ---------------------------------------------------------------- the game
   reset(api) {
     this._park();
+    this.rng = mulberry32(freshSeed()); // a new canyon every flight
     this.easy = !!(api && api.portrait());
     this.speed = 9;
     this.gatesPassed = 0;

@@ -10,7 +10,7 @@
 // and the caret stay put); structural changes rebuild it.
 
 import { h, autosize, toast } from './dom.js';
-import { KINDS, yearSpan, slug } from '../resume/normalize.js';
+import { KINDS, CATEGORIES, categoryOf, yearSpan, slug } from '../resume/normalize.js';
 import { humanSize } from './media.js';
 import { GAMES, tidyGames } from './games.js';
 
@@ -431,6 +431,7 @@ function entryPanel(ctx, id) {
     textInput(ctx, { label: 'Title', value: e.title, key: k('title'), set: (s, v) => (E(s).title = v), placeholder: project ? 'Project name' : 'Role or degree', id: 'i-title' }),
   ];
   if (kind !== 'skills') basics.push(textInput(ctx, { label: project ? 'Byline' : kind === 'education' ? 'School' : 'Organization', value: e.org, key: k('org'), set: (s, v) => (E(s).org = v), placeholder: project ? 'Project' : '', id: 'i-org' }));
+  if (project) basics.push(categoryField(ctx, e, E, k));
   if (project) basics.push(textInput(ctx, { label: 'Status', value: e.status, key: k('status'), set: (s, v) => (E(s).status = v), placeholder: 'In progress', hintText: 'Shown on its label and card, like “In progress” or “Shipped 2026”.' }));
   else if (kind !== 'skills') {
     basics.push(
@@ -626,6 +627,31 @@ function entryPanel(ctx, id) {
   return out;
 }
 
+// A project's category: pick one of the usual ones or type your own. It groups projects
+// in the index and colours the pad's lights, the label, the card and the map marker.
+function categoryField(ctx, e, E, k) {
+  const listId = 'i-categories';
+  const names = [...new Set([...CATEGORIES.map((c) => c.name), ...ctx.store.site.entries.map((x) => x.category).filter(Boolean)])];
+  const input = h('input', { class: 'i-input', list: listId, placeholder: 'Robotics, Software, AI / ML, …', autocomplete: 'off' });
+  input.value = e.category || '';
+  const swatch = h('span', { class: 'i-swatch' });
+  const paint = () => (swatch.style.background = input.value.trim() ? categoryOf(input.value).color : 'transparent');
+  paint();
+  input.addEventListener('input', () => {
+    paint();
+    ctx.change((s) => (E(s).category = input.value.trim() || undefined), `field:${k('category')}`);
+  });
+  input.addEventListener('blur', () => ctx.store.seal());
+  return h(
+    'label',
+    { class: 'i-field' },
+    h('span', { class: 'i-label', text: 'Category' }),
+    h('span', { class: 'i-with-swatch' }, input, swatch),
+    h('datalist', { id: listId }, names.map((n) => h('option', { value: n }))),
+    hint('Groups projects in the index and colours the pad’s lights, its label, card and map marker.'),
+  );
+}
+
 // The ID is how everything else finds the entry, so it changes when the field is left
 // (or Enter is pressed), not on every keystroke.
 function idField(ctx, e, id) {
@@ -678,7 +704,10 @@ function modelSection(ctx, e, E, k) {
   const kids = [hint('What stands on the landing pad.')];
   const choices = h('div', { class: 'i-choices' });
   for (const [type, title, desc] of [
-    ['ornithopter', 'Ornithopter', 'The built-in flapping-wing craft'],
+    ['ornithopter', 'Ornithopter', 'Flapping-wing craft that lifts off'],
+    ['rover', 'Rover', 'Six wheels; wakes and watches you'],
+    ['core', 'Data core', 'A crystal in rings that spins up'],
+    ['dish', 'Dish', 'An antenna that tracks visitors'],
     ['pod', 'Cargo pod', 'A simple sealed pod'],
     ['glb', 'Your model', 'Upload a .glb file'],
   ]) {
@@ -725,7 +754,7 @@ function modelSection(ctx, e, E, k) {
     slider(ctx, { label: 'Size', value: m.scale ?? 1, min: 0.2, max: 3, step: 0.05, key: k('mScale'), set: (s, v) => (M(s).scale = v), format: (v) => `${v.toFixed(2)}×` }),
     slider(ctx, { label: 'Turn', value: m.yaw ?? 0, min: 0, max: 359, step: 1, key: k('mYaw'), set: (s, v) => (M(s).yaw = v), format: (v) => `${Math.round(v)}°` }),
     slider(ctx, { label: 'Height', value: m.y ?? 0, min: -2, max: 4, step: 0.05, key: k('mY'), set: (s, v) => (M(s).y = v), format: (v) => `${v.toFixed(2)} m` }),
-    toggle(ctx, { label: 'Lifts off and hovers when someone walks up', checked: m.lift !== false, key: k('mLift'), set: (s, v) => (M(s).lift = v) }),
+    toggle(ctx, { label: m.type === 'ornithopter' || m.type === 'glb' ? 'Lifts off and hovers when someone walks up' : 'Comes to life when someone walks up', checked: m.lift !== false, key: k('mLift'), set: (s, v) => (M(s).lift = v) }),
   );
   return section('3D model', ...kids);
 }
@@ -916,6 +945,8 @@ function profilePanel(ctx) {
 function worldPanel(ctx) {
   const w = ctx.store.site.world || {};
   const W = (s) => (s.world ||= {});
+  const life = w.life || {};
+  const L = (s) => (W(s).life ||= {});
   const fmt = (v) => `${String(Math.floor(v) % 24).padStart(2, '0')}:${String(Math.floor((v % 1) * 60)).padStart(2, '0')}`;
   return [
     h('header', { class: 'i-head' }, h('div', { class: 'i-kicker', text: 'Site' }), h('h2', { text: 'World' })),
@@ -940,7 +971,27 @@ function worldPanel(ctx) {
           'Try another',
         ),
       ),
-      slider(ctx, { label: 'Time of day', value: w.time ?? 16.9, min: 0, max: 24, step: 0.05, key: 'w:time', set: (s, v) => (W(s).time = v), format: fmt }),
+      slider(ctx, { label: 'Time of day when visitors arrive', value: w.time ?? 16.9, min: 0, max: 24, step: 0.05, key: 'w:time', set: (s, v) => (W(s).time = v), format: fmt }),
+      slider(ctx, {
+        label: 'Length of a day',
+        value: w.cycle ?? 24,
+        min: 0,
+        max: 120,
+        step: 1,
+        key: 'w:cycle',
+        set: (s, v) => (W(s).cycle = v === 24 ? undefined : v),
+        format: (v) => (v === 0 ? 'the sun stands still' : `${Math.round(v)} min`),
+      }),
+      hint('Once a visitor walks out, the sun moves on by itself: a full day and night in this many minutes. They can still set it with the Sun slider.'),
+    ),
+    section(
+      'Life',
+      hint('Other walkers, wildlife, spice and passing events. They take new places on every visit; none of it shows here in the editor.'),
+      slider(ctx, { label: 'Other walkers', value: life.walkers ?? 4, min: 0, max: 8, step: 1, key: 'w:walkers', set: (s, v) => (L(s).walkers = v === 4 ? undefined : v), format: (v) => (v === 0 ? 'none' : String(Math.round(v))) }),
+      hint('They wander between the stones, greet visitors and point them at what they haven’t read. Phones show two at most.'),
+      toggle(ctx, { label: 'Wildlife', checked: life.wildlife !== false, key: 'w:wildlife', set: (s, v) => (L(s).wildlife = v ? undefined : false), hintText: 'Desert mice that bolt when you come near, and hawks overhead by day.' }),
+      toggle(ctx, { label: 'Spice to gather', checked: life.spice !== false, key: 'w:spice', set: (s, v) => (L(s).spice = v ? undefined : false), hintText: 'Glowing patches visitors collect by walking through them; the tally stays in their browser.' }),
+      toggle(ctx, { label: 'Passing events', checked: life.events !== false, key: 'w:events', set: (s, v) => (L(s).events = v ? undefined : false), hintText: 'Now and then: an ornithopter overhead, wormsign far off, a spice blow, a dust devil, a squall.' }),
     ),
   ];
 }

@@ -27,8 +27,22 @@ import { saveDraft, loadDraft, clearDraft } from './drafts.js';
 import { prepareImage, fileSlug, shortId, humanSize, blobToBase64, MODEL_WARN, MODEL_MAX } from './media.js';
 import { renderInspector } from './inspector.js';
 import { GAMES, tidyGames } from './games.js';
+import { diffSites, commitMessage, cleanSite, validate, same, checkShape, titleOf, plural, safePublicPath } from './changes.js';
 
 setAssetRoot('../');
+
+// Never run inside a page from somewhere else: a frame could be dressed up to trick
+// clicks out of whoever is signed in.
+let framed = false;
+try {
+  framed = window.top !== window.self && window.top.location.origin !== window.location.origin;
+} catch {
+  framed = true;
+}
+if (framed) {
+  document.getElementById('app').textContent = 'Management can’t be shown inside another site. Open it directly.';
+  throw new Error('framed by another origin');
+}
 
 const cfg = { branch: 'main', contentPath: 'src/resume/site.json', publicDir: 'public', ...(manageConfig || {}) };
 const REMOTE = !!(cfg.owner && cfg.repo);
@@ -36,7 +50,6 @@ const REPO_KEY = REMOTE ? `${cfg.owner}/${cfg.repo}@${cfg.branch}` : 'local';
 const IDLE_LOCK = 30 * 60 * 1000;
 const IMAGE_MAX_IN = 30 * 1024 * 1024;
 const PDF_MAX = 25 * 1024 * 1024;
-const SAFE_HREF = /^(https?:\/\/|mailto:|tel:|\/|\.\.?\/|#)|^[\w.-]+\.(pdf|html?)$/i;
 
 const root = document.getElementById('app');
 const store = new Store();
@@ -52,11 +65,9 @@ let draftTimer = 0;
 let draftUnsaved = false;
 let lastActive = Date.now();
 
-const titleOf = (e) => (e && e.title) || 'Untitled';
 const isStone = (e) => e.kind !== 'project';
 const entryById = (id) => store.site.entries.find((e) => e.id === id) || null;
 const pretty = (site) => `${JSON.stringify(site, null, 2)}\n`;
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function isTextField(el) {
   if (!el) return false;
@@ -64,12 +75,6 @@ function isTextField(el) {
   return el.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit', 'file', 'color'].includes(el.type);
 }
 
-function checkShape(site) {
-  if (!site || typeof site !== 'object' || !site.profile || !Array.isArray(site.entries)) {
-    throw new Error('That isn’t a site.json this editor understands (it needs a profile and a list of entries).');
-  }
-  return site;
-}
 
 let baseCache = { text: null, site: null };
 function baseSite() {
@@ -85,104 +90,6 @@ function baseSite() {
   return baseCache.site;
 }
 
-// ---------------------------------------------------------------------------
-// what changed since the last publish
-// ---------------------------------------------------------------------------
-const FIELD_NAMES = {
-  kind: 'kind',
-  title: 'title',
-  org: 'organization',
-  status: 'status',
-  period: 'dates',
-  years: 'years label',
-  location: 'location',
-  summary: 'lead-in',
-  bullets: 'highlights',
-  body: 'details',
-  cover: 'cover image',
-  coverAlt: 'alt text',
-  tags: 'tags',
-  tagsLabel: 'tags heading',
-  facts: 'facts',
-  links: 'links',
-  groups: 'skill groups',
-  model: '3D model',
-  place: 'placement',
-  scale: 'size',
-  hidden: 'visibility',
-};
-const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-
-function diffSites(a, b) {
-  const out = [];
-  a = a || { profile: {}, site: {}, world: {}, entries: [] };
-  if (!same(a.profile, b.profile)) out.push({ area: 'profile', text: 'Profile and intro', short: 'edit profile', revert: (s) => (s.profile = clone(a.profile || {})) });
-  if (!same(a.site, b.site)) out.push({ area: 'site', text: 'Site settings (résumé PDF)', short: 'update site settings', revert: (s) => (s.site = clone(a.site || {})) });
-  if (!same(a.world, b.world)) out.push({ area: 'world', text: 'World (seed and time of day)', short: 'update world', revert: (s) => (s.world = clone(a.world || {})) });
-  const ga = tidyGames({ games: clone(a.games || {}) }).games;
-  const gb = tidyGames({ games: clone(b.games || {}) }).games;
-  for (const g of GAMES) {
-    if (same(ga && ga[g.id], gb && gb[g.id])) continue;
-    out.push({
-      area: 'game',
-      id: `game:${g.id}`,
-      text: `${g.title} (placement or visibility)`,
-      short: `update the ${g.title}`,
-      revert: (s) => {
-        s.games ||= {};
-        if (ga && ga[g.id]) s.games[g.id] = clone(ga[g.id]);
-        else delete s.games[g.id];
-        tidyGames(s);
-      },
-    });
-  }
-  const am = new Map(a.entries.map((e, i) => [e.id, { e, i }]));
-  const bm = new Map(b.entries.map((e) => [e.id, e]));
-  for (const e of b.entries) {
-    const o = am.get(e.id);
-    if (!o) {
-      out.push({ area: 'entry', op: 'added', id: e.id, text: `Added “${titleOf(e)}”`, short: `add “${titleOf(e)}”`, revert: (s) => (s.entries = s.entries.filter((x) => x.id !== e.id)) });
-    } else if (!same(o.e, e)) {
-      const keys = [...new Set([...Object.keys(o.e), ...Object.keys(e)])].filter((k) => k !== 'id' && !same(o.e[k], e[k]));
-      const what = keys.map((k) => FIELD_NAMES[k] || k);
-      out.push({
-        area: 'entry',
-        op: 'edited',
-        id: e.id,
-        text: `Edited “${titleOf(e)}”`,
-        detail: what.join(', '),
-        short: keys.length === 1 && keys[0] === 'place' ? `move “${titleOf(e)}”` : `edit “${titleOf(e)}”`,
-        revert: (s) => {
-          const i = s.entries.findIndex((x) => x.id === e.id);
-          if (i >= 0) s.entries[i] = clone(o.e);
-        },
-      });
-    }
-  }
-  for (const [id, o] of am) {
-    if (!bm.has(id)) {
-      out.push({
-        area: 'entry',
-        op: 'removed',
-        id,
-        text: `Removed “${titleOf(o.e)}”`,
-        short: `remove “${titleOf(o.e)}”`,
-        revert: (s) => {
-          if (s.entries.some((x) => x.id === id)) return;
-          s.entries.splice(Math.min(o.i, s.entries.length), 0, clone(o.e));
-        },
-      });
-    }
-  }
-  const order = (s) =>
-    s.entries
-      .filter((e) => am.has(e.id) && bm.has(e.id))
-      .map((e) => e.id)
-      .join('\n');
-  if (order(a) !== order(b)) out.push({ area: 'order', text: 'Order of entries', short: 'reorder entries' });
-  return out;
-}
-
 function changeList() {
   return diffSites(baseSite(), store.site);
 }
@@ -191,62 +98,7 @@ function changedIds() {
   return new Set(changeList().filter((c) => c.id && c.op !== 'removed').map((c) => c.id));
 }
 
-function commitMessage(changes, files) {
-  const parts = changes.map((c) => c.short);
-  if (!parts.length && files.length) parts.push(`update ${plural(files.length, 'file')}`);
-  let msg = '';
-  for (let i = 0; i < parts.length; i++) {
-    const next = `${msg ? `${msg}, ` : ''}${parts[i]}`;
-    if (next.length > 64 && msg) {
-      msg += ` and ${parts.length - i} more`;
-      break;
-    }
-    msg = next;
-  }
-  msg = msg.charAt(0).toUpperCase() + msg.slice(1);
-  return `Site: ${msg}`;
-}
-
 // ---------------------------------------------------------------------------
-// tidy and check before publishing
-// ---------------------------------------------------------------------------
-function cleanSite(src) {
-  const s = clone(src);
-  const text = (v) => typeof v === 'string' && v.trim() !== '';
-  for (const e of s.entries) {
-    if (Array.isArray(e.bullets)) e.bullets = e.bullets.filter(text);
-    if (Array.isArray(e.tags)) e.tags = e.tags.filter(text);
-    if (Array.isArray(e.links)) e.links = e.links.filter((l) => l && text(l.href));
-    if (Array.isArray(e.facts)) e.facts = e.facts.filter((f) => Array.isArray(f) && text(f[0]));
-    if (Array.isArray(e.groups)) for (const g of e.groups) g.items = (g.items || []).filter(text);
-  }
-  if (s.profile && Array.isArray(s.profile.links)) s.profile.links = s.profile.links.filter((l) => l && text(l.href));
-  return tidyGames(s);
-}
-
-function validate(site) {
-  const errors = [];
-  const warnings = [];
-  if (!(site.profile && String(site.profile.name || '').trim())) errors.push({ text: 'The profile has no name.', sel: { type: 'profile' } });
-  const seen = new Set();
-  for (const e of site.entries) {
-    const at = { type: 'entry', id: e.id };
-    if (!e.id) errors.push({ text: `“${titleOf(e)}” has no ID.`, sel: at });
-    else if (seen.has(e.id)) errors.push({ text: `Two entries share the ID “${e.id}”.`, sel: at });
-    seen.add(e.id);
-    if (!String(e.title || '').trim()) errors.push({ text: 'An entry has no title.', sel: at });
-    if (e.kind === 'project' && e.model && e.model.type === 'glb' && !e.model.src) warnings.push({ text: `“${titleOf(e)}” is set to use your own model, but none is chosen; its pad shows a placeholder.`, sel: at });
-    if (e.cover && !String(e.coverAlt || '').trim()) warnings.push({ text: `The cover image on “${titleOf(e)}” has no alt text.`, sel: at });
-    for (const l of e.links || []) {
-      if (!SAFE_HREF.test(String(l.href).trim())) warnings.push({ text: `“${titleOf(e)}” links to “${l.href}”, which doesn’t look like a web address.`, sel: at });
-      if (!String(l.label || '').trim()) warnings.push({ text: `A link on “${titleOf(e)}” has no label.`, sel: at });
-    }
-  }
-  for (const l of site.profile.links || []) if (!SAFE_HREF.test(String(l.href).trim())) warnings.push({ text: `The contact link “${l.label || l.href}” doesn’t look like a web or mail address.`, sel: { type: 'profile' } });
-  if (!site.entries.some((e) => !e.hidden)) warnings.push({ text: 'Every entry is hidden, so the desert will be empty.' });
-  return { errors, warnings };
-}
-
 // ---------------------------------------------------------------------------
 // sign in
 // ---------------------------------------------------------------------------
@@ -807,7 +659,7 @@ function startPanel() {
 }
 
 function entrySub(e) {
-  if (e.kind === 'project') return e.status || 'Project';
+  if (e.kind === 'project') return [e.category, e.status || (e.category ? '' : 'Project')].filter(Boolean).join(' · ');
   if (e.kind === 'skills') return 'Toolkit';
   return [e.org, e.years || yearSpan(e.period)].filter(Boolean).join(' · ');
 }
@@ -827,7 +679,7 @@ function renderSide() {
 
   const q = ui.search.value.trim().toLowerCase();
   const changed = changedIds();
-  const match = (e) => !q || [e.title, e.org, e.id, e.status, ...(e.tags || [])].some((v) => v && String(v).toLowerCase().includes(q));
+  const match = (e) => !q || [e.title, e.org, e.id, e.status, e.category, ...(e.tags || [])].some((v) => v && String(v).toLowerCase().includes(q));
   const item = (e) => {
     const li = h(
       'li',
@@ -1086,7 +938,8 @@ async function uploadPdf(file) {
   if ((await file.slice(0, 5).text()) !== '%PDF-') throw new Error('That file isn’t a PDF.');
   const cur = store.site.site && store.site.site.pdf;
   // replacing keeps the same address, so links people already have keep working
-  const path = cur && !/^(https?:|data:|blob:)/i.test(cur) ? cur.replace(/^\/+/, '') : `${fileSlug(file.name)}.pdf`;
+  const kept = cur && !/^(https?:|data:|blob:)/i.test(cur) ? cur.replace(/^\/+/, '') : '';
+  const path = kept && safePublicPath(kept) && /\.pdf$/i.test(kept) ? kept : `${fileSlug(file.name)}.pdf`;
   store.addFile(path, file, file.name);
   return path;
 }
@@ -1649,6 +1502,12 @@ async function prepareRelease() {
     },
   });
   if (!go) return null;
+  // files only ever go under public/, by plain paths (belt and braces: uploads already name them so)
+  const bad = files.find((p) => !safePublicPath(p));
+  if (bad) {
+    toast(`“${bad}” isn’t a path this editor will publish. Remove that file and add it again.`, 'error');
+    return null;
+  }
   return { site, text: pretty(site), files, message: msg.value.trim() || commitMessage(changes, files) };
 }
 

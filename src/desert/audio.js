@@ -173,6 +173,10 @@ export class DesertAudio {
       hit: [300, 90, 0.25, 'sawtooth', 0.05],
       die: [260, 55, 0.5, 'sawtooth', 0.06],
       clear: [523, 1046, 0.4, 'triangle', 0.07],
+      squeak: [2100, 2900, 0.06, 'sine', 0.025],
+      hawk: [1500, 900, 0.5, 'sawtooth', 0.018],
+      spice: [660, 1760, 0.16, 'triangle', 0.06],
+      hop: [220, 400, 0.1, 'sine', 0.03],
     };
     const [f0, f1, dur, type, vol] = presets[name] || presets.pickup;
     const ctx = this.ctx;

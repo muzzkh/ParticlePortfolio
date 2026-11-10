@@ -21,15 +21,16 @@ export type Profile = {
 }
 
 export type Model = {
-  // the built-in ornithopter, a plain cargo pod, or an uploaded .glb
-  type: 'ornithopter' | 'pod' | 'glb'
+  // built in: the ornithopter, a rover, a data core, a tracking dish or a plain
+  // cargo pod; or an uploaded .glb
+  type: 'ornithopter' | 'rover' | 'core' | 'dish' | 'pod' | 'glb'
   src?: string
   scale?: number
   // degrees
   yaw?: number
   // metres above the pad
   y?: number
-  // rise and hover when a visitor walks up
+  // come to life (lift off, wake, spin up) when a visitor walks up
   lift?: boolean
 }
 
@@ -41,6 +42,10 @@ export type Entry = {
   kind: 'experience' | 'education' | 'project' | 'skills'
   title: string
   org?: string
+  // projects: groups them in the index and colours the pad, label, card and map
+  // marker. 'Robotics', 'Software', 'AI / ML', 'Hardware', 'Research', 'Web' and
+  // 'Games' have their own colours; any other name gets one of its own
+  category?: string
   // projects: shown on the label and card, like 'In progress'
   status?: string
   period?: string
@@ -83,7 +88,15 @@ export type SiteContent = {
   version: 1
   profile: Profile
   site: { pdf?: string }
-  world: { seed?: number; time?: number }
+  world: {
+    seed?: number
+    // the hour visitors arrive at
+    time?: number
+    // minutes for a full day and night once they walk out (default 24; 0: the sun stands still)
+    cycle?: number
+    // what else is out there; everything is on unless turned off, walkers default to 4
+    life?: { walkers?: number; wildlife?: boolean; spice?: boolean; events?: boolean }
+  }
   games?: { worm?: GameSettings; run?: GameSettings; fly?: GameSettings }
   entries: Entry[]
 }

@@ -1,4 +1,5 @@
 import { groundHeight } from './noise.js';
+import { categoryOf } from './resume/normalize.js';
 
 // The minimap: a round map in a corner that turns with the view (up on the map is up
 // on the screen), and a full map it opens into. Both show the dunes, rock, the road and
@@ -274,7 +275,7 @@ export class Minimap {
       if (x < -30 || y < -30 || x > W + 30 || y > H + 30) continue;
       const cur = st.entry.id === s.current;
       const size = (full ? 6 : 4.2) * dpr * (cur ? 1.35 : 1);
-      ctx.fillStyle = ctx.strokeStyle = KIND[st.kind] || KIND.experience;
+      ctx.fillStyle = ctx.strokeStyle = st.entry.category ? categoryOf(st.entry.category).color : KIND[st.kind] || KIND.experience;
       ctx.lineWidth = Math.max(1, 1.5 * dpr);
       if (cur) {
         ctx.save();
@@ -289,6 +290,23 @@ export class Minimap {
         this.hits.push({ x, y, r: 16 * dpr, pick: { type: 'stone', id: st.entry.id } });
         this._label(ctx, st.entry.title, x, y - size - 5 * dpr, 'rgba(255, 241, 221, 0.92)', dpr);
       }
+    }
+
+    // spice lying about, and the other walkers
+    ctx.fillStyle = '#ff9a3d';
+    for (const p of s.spice || []) {
+      ctx.beginPath();
+      ctx.arc(mx(p.x, p.z), my(p.x, p.z), (full ? 2.2 : 1.6) * dpr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#e8d9c2';
+    ctx.strokeStyle = 'rgba(40, 18, 6, 0.8)';
+    ctx.lineWidth = dpr;
+    for (const w of s.walkers || []) {
+      ctx.beginPath();
+      ctx.arc(mx(w.x, w.z), my(w.x, w.z), (full ? 3.2 : 2.4) * dpr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     }
 
     // what the camera sees

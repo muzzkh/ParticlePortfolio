@@ -8,6 +8,9 @@
       name="description"
       content="Muzzamil Khan, Software Engineer. An interactive résumé: walk a procedurally generated desert and read each chapter from the waystones along the road."
     />
+    <!-- Only this site's own scripts run; no inline script, no plugins, no forms.
+         Images may come from https (content can link them); fonts from Google Fonts. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob:; connect-src 'self' blob: data: ws://localhost:* ws://127.0.0.1:*; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'" />
     <meta name="theme-color" content="#1a0f08" />
     <meta name="color-scheme" content="dark" />
     <!-- paint the desert's dark backdrop from the very first frame, before any stylesheet -->
@@ -30,8 +33,8 @@
       href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Syncopate:wght@400;700&display=swap"
       rel="stylesheet"
       media="print"
-      onload="this.media = 'all'"
     />
+    <script defer src="./boot.js"></script>
     <noscript>
       <link
         href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Syncopate:wght@400;700&display=swap"
@@ -47,7 +50,7 @@
     <div id="hud" class="hidden">
       <header class="brand">
         <div class="wordmark" id="wordmark">Muzzamil Khan</div>
-        <div class="sub"><span id="region">The Deep Desert</span> · <span id="clock">16:54</span></div>
+        <div class="sub"><span id="region">The Deep Desert</span> · <span id="clock">16:54</span><span id="spiceCount" class="spice-count" hidden></span></div>
       </header>
 
       <div id="labels" aria-hidden="true"></div>
@@ -131,7 +134,7 @@
         <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · <kbd>Shift</kbd> run</div>
         <div><kbd>Click</kbd> walk to · <kbd>Dbl</kbd> run to</div>
         <div><kbd>R</kbd> résumé · <kbd>,</kbd><kbd>.</kbd> prev / next · <kbd>Esc</kbd> close</div>
-        <div><kbd>P</kbd> games · <kbd>Space</kbd> play on a ring</div>
+        <div><kbd>Space</kbd> leap · <kbd>P</kbd> games (<kbd>Space</kbd> on a ring plays)</div>
         <div><kbd>Q</kbd><kbd>E</kbd> turn view · <kbd>Scroll</kbd> <kbd>−</kbd><kbd>=</kbd> zoom</div>
         <div><kbd>H</kbd> hide interface</div>
       </footer>
@@ -151,7 +154,7 @@
           <li><b>WASD</b> or click to walk</li>
           <li><b>Shift</b> to run</li>
           <li><b>R</b> résumé index</li>
-          <li><b>C</b> sandwalk</li>
+          <li><b>Space</b> to leap</li>
         </ul>
         <nav class="intro-links" id="introLinks" aria-label="Contact and downloads"></nav>
       </div>
@@ -167,7 +170,7 @@
           <button id="mapClose" type="button" aria-label="Close the map (Esc)">✕</button>
         </div>
         <div class="mf-legend">
-          <span><i class="lg exp"></i>Experience</span><span><i class="lg edu"></i>Education</span><span><i class="lg proj"></i>Projects</span><span><i class="lg skill"></i>Skills</span><span><i class="lg game"></i>Games</span>
+          <span><i class="lg exp"></i>Experience</span><span><i class="lg edu"></i>Education</span><span><i class="lg proj"></i>Projects</span><span><i class="lg skill"></i>Skills</span><span><i class="lg game"></i>Games</span><span><i class="lg walker"></i>Walkers</span><span><i class="lg spice"></i>Spice</span>
           <em>Filled once found · tap a stone, a game or the sand to go there</em>
         </div>
       </div>
@@ -195,12 +198,6 @@
       </div>
     </noscript>
 
-    <!-- if the app never gets going, still show the intro after a few seconds -->
-    <script>
-      setTimeout(function () {
-        document.body.classList.add('ready');
-      }, 7000);
-    </script>
     <script type="module" src="./src/desert/main.js"></script>
   </body>
 </html>
