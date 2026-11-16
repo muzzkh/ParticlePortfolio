@@ -6,7 +6,7 @@
     <title>Muzzamil Khan — Software Engineer</title>
     <meta
       name="description"
-      content="Muzzamil Khan, Software Engineer. An interactive résumé: walk a procedurally generated desert and read each chapter from the waystones along the road."
+      content="Muzzamil Khan, Software Engineer. An interactive résumé: walk a procedurally generated desert and read each chapter from the circle of waystones."
     />
     <!-- Only this site's own scripts run; no inline script, no plugins, no forms.
          Images may come from https (content can link them); fonts from Google Fonts. -->
@@ -22,7 +22,7 @@
     </style>
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Muzzamil Khan — Software Engineer" />
-    <meta property="og:description" content="An interactive résumé set in a procedurally generated desert. Walk the road and read the waystones." />
+    <meta property="og:description" content="An interactive résumé set in a procedurally generated desert. Walk the circle and read the waystones." />
     <link rel="icon" type="image/svg+xml" href="./waystone.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -142,10 +142,15 @@
 
     <!-- Intro -->
     <section id="intro">
+      <!-- The intro film: plays once behind the title, then rests on its last frame until
+           the desert is entered. Started from ui.js, so nothing is fetched before then. -->
+      <video id="introFilm" class="intro-film" muted playsinline preload="none" disablepictureinpicture disableremoteplayback aria-hidden="true" tabindex="-1">
+        <source src="./intro.mp4" type="video/mp4" />
+      </video>
       <div class="intro-inner">
         <div class="eyebrow" id="introTitle">Computer Engineer</div>
         <h1 id="introName">Muzzamil Khan</h1>
-        <p class="lede" id="introLede">Waystones stand in the deep desert, one for every chapter of the road so far. Walk out and read them.</p>
+        <p class="lede" id="introLede">Waystones stand in a circle in the deep desert, one for every chapter of the road so far. Walk round and read them.</p>
         <div class="intro-actions">
           <button id="enter" type="button">Enter the desert</button>
           <button id="enterRead" class="ghost" type="button">Read the résumé</button>

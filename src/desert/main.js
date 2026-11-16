@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { setSeed, groundHeight, groundGradient, addCrater, updateCraters, clearCraters, vnoise, WIND } from './noise.js';
+import { setSeed, setCourt, clearCourt, groundHeight, groundGradient, addCrater, updateCraters, clearCraters, vnoise, WIND } from './noise.js';
 import { createTerrain } from './terrain.js';
 import { TrailSystem, STAMP } from './trails.js';
 import { Atmosphere } from './atmosphere.js';
@@ -10,7 +10,7 @@ import { Sandworm, Thumper } from './worm.js';
 import { DesertAudio } from './audio.js';
 import { createPost } from './post.js';
 import { UI } from './ui.js';
-import { Waystones, SAFE_MARGIN } from './waystones.js';
+import { Waystones, SAFE_MARGIN, WAKE_RADIUS } from './waystones.js';
 import { Codex, contactLinks } from './codex.js';
 import { prepareEntries } from './resume/normalize.js';
 import initialSite from './resume/content.js';
@@ -22,6 +22,7 @@ import { Life, lifeSettings } from './life/index.js';
 import { Atomics, LaunchKey, strikeTargets } from './atomics.js';
 import { LaunchPad } from './launchpad.js';
 import { mulberry32 } from './rng.js';
+import { ringPlan, RING_MIN } from './circle.js';
 
 // ---------------------------------------------------------------------------
 // Renderer & core objects
@@ -132,7 +133,21 @@ function applySeed(seed) {
     /* sandboxed frames may forbid this */
   }
 }
+// How far out the circle of waystones round the start reaches.
+function circleReach() {
+  const rings = ringPlan(waystones.stones.filter((s) => s.kind !== 'project' && !s.entry.place).length);
+  return rings.length ? rings[rings.length - 1].r : 0;
+}
+// Level a court of calm sand for the circle to stand on, round (x, z).
+function levelCourt(x, z) {
+  const inner = Math.max(RING_MIN, circleReach()) + WAKE_RADIUS + 1;
+  const c = setCourt(x, z, inner, inner + 12);
+  terrain.uniforms.uCourt.value.set(c.x, c.z, c.inner, c.outer);
+  terrain.uniforms.uCourtLevel.value = c.level;
+}
+// The calmest sand near the middle of the world, with the court levelled round it.
 function findSpawn() {
+  clearCourt(); // look at the dunes as they lie
   const g = { x: 0, z: 0 };
   let best = { x: 0, z: 0, s: Infinity };
   for (let i = 0; i < 60; i++) {
@@ -145,6 +160,7 @@ function findSpawn() {
     if (s < best.s) best = { x, z, s };
     if (s < 0.12) break;
   }
+  levelCourt(best.x, best.z);
   return best;
 }
 
@@ -176,7 +192,9 @@ function enterDesert() {
     audio.start();
     audio.resume();
   }
-  cam.heightTarget = 20;
+  // close enough to read the walker, but on a narrow screen pulled back to keep more of
+  // the circle in view
+  cam.heightTarget = THREE.MathUtils.clamp((2 * (circleReach() + 2.5)) / (window.innerWidth / window.innerHeight), 20, 30);
   player.rhythm = 0;
   canvas.focus();
   setTimeout(() => {
@@ -197,9 +215,9 @@ function applyIntro() {
   const pads = entries.length - stones;
   document.getElementById('introLede').textContent =
     profile.intro ||
-    `${NUMBER_WORDS[stones] ?? stones} waystones stand in the deep desert, one for every chapter of the road so far.` +
-      (pads ? ` The other way, ${pads > 1 ? 'landing pads hold' : 'a landing pad holds'} what I'm building now.` : '') +
-      ' Walk out and read them.' +
+    `${NUMBER_WORDS[stones] ?? stones} waystones stand in a circle in the deep desert, one for every chapter of the road so far.` +
+      (pads ? ` Just outside it, ${pads > 1 ? 'landing pads hold' : 'a landing pad holds'} what I'm building now.` : '') +
+      ' Walk round and read them.' +
       (['worm', 'ride', 'race'].some((id) => !(site.games && site.games[id] && site.games[id].hidden)) ? ' Off to one side, there are games to play.' : '');
   document.getElementById('introLinks').replaceChildren(...contactLinks({ profile, site: site.site || {} }));
 }
@@ -337,20 +355,25 @@ function updateWaystones(dt, t, vr) {
   }
 }
 
-// Every stone read: a worm breaches in salute, up-screen where it can be seen.
+// Every stone read: a worm breaches in salute, up-screen where it can be seen. It rises
+// beyond the circle and crosses the view from one side, so it never comes down among
+// the stones.
 function finale() {
   if (worm.active) return;
   const ux = -Math.sin(cam.yaw);
   const uz = -Math.cos(cam.yaw);
-  const x = player.pos.x + ux * 20;
-  const z = player.pos.z + uz * 20;
-  worm.summon({ kind: 'finale', x, z }, Math.atan2(uz, ux) + (Math.random() - 0.5) * 0.8, 90);
+  const d = Math.max(20, waystones.safeRadius + 4);
+  const x = spawnPoint.x + ux * d;
+  const z = spawnPoint.z + uz * d;
+  const side = Math.random() < 0.5 ? 1 : -1;
+  worm.summon({ kind: 'finale', x, z }, Math.atan2(uz, ux) + (side * Math.PI) / 2, 60);
 }
 
 // The layout must come out the same for everyone in a given world (they can see each
 // other), so it depends only on the seed, never on the screen or the current view.
-// The road sets off toward the lower right of the starting view, which keeps the first
-// stone on screen on wide and tall screens alike; the project pads go the other way.
+// The stones stand in a circle round the start. The first is toward the lower right of
+// the starting view, which keeps it on screen on wide and tall screens alike, and the
+// rest follow clockwise; the project pads stand outside the circle, on its far side.
 const START_YAW = THREE.MathUtils.degToRad(12);
 let spawnPoint = { x: 0, z: 0 };
 function layoutRoad(x, z) {
@@ -361,14 +384,16 @@ function layoutRoad(x, z) {
   const ux = Math.cos(START_YAW) * r - Math.sin(START_YAW) * u;
   const uz = -Math.sin(START_YAW) * r - Math.cos(START_YAW) * u;
   const heading = Math.atan2(uz, ux);
-  // the games go off to the right; no rocks on their tracks, no stones on their sites
-  games.layout(x, z, heading, site.games);
-  const key = JSON.stringify([x, z, heading, site.games || null, seedValue]);
+  // the games go off to the right, clear of the circle; no stones on their sites, and
+  // no rocks on their tracks or in the circle
+  levelCourt(x, z);
+  games.layout(x, z, heading, site.games, circleReach());
+  waystones.layout(x, z, heading, (px, pz, m) => games.keepsClear(px, pz, m));
+  const key = JSON.stringify([x, z, heading, site.games || null, seedValue, waystones.stones.map((s) => [Math.round(s.x * 10), Math.round(s.z * 10)])]);
   if (key !== gamesLayoutKey) {
     gamesLayoutKey = key;
-    rocks.setExclusion((px, pz, rr) => games.corridor(px, pz, rr));
+    rocks.setExclusion((px, pz, rr) => games.corridor(px, pz, rr) || waystones.keepsClear(px, pz, rr));
   }
-  waystones.layout(x, z, heading, (px, pz, m) => rocks.nearRock(px, pz, m) || games.keepsClear(px, pz, m));
   // everyone else in the desert takes new places around the new layout
   if (life) {
     life.configure(lifeSettings(site.world, SMALL));
@@ -451,8 +476,8 @@ function plantThumper() {
   const fz = Math.cos(player.yaw);
   const x = player.pos.x + fx * 1.2;
   const z = player.pos.z + fz * 1.2;
-  if (rocks.nearRock(x, z, 0.8) || waystones.nearStone(x, z, 0.8)) {
-    ui.toast('A thumper needs open sand.', 2.5);
+  if (rocks.nearRock(x, z, 0.8) || waystones.nearStone(x, z, 0.8) || waystones.onCourt(x, z, 2)) {
+    ui.toast(waystones.onCourt(x, z, 2) ? 'The circle stands on rock. A thumper needs open sand.' : 'A thumper needs open sand.', 2.5);
     return;
   }
   if (thumper && thumper.alive) thumper.remove();
@@ -1041,15 +1066,14 @@ function updateMinimap() {
   m.viewD = cam.height / Math.sin(cam.pitch);
   m.stones = waystones.stones;
   m.current = codex.currentId;
-  // the road and the project path, from the start through each stone or pad in turn
+  // the circle of stones, ring by ring, and a spoke from the start out to each pad
   const key = `${spawnPoint.x},${spawnPoint.z}`;
   if (mapPathsFor !== waystones || mapPaths.key !== key) {
     mapPathsFor = waystones;
-    const road = [spawnPoint, ...waystones.stones.filter((st) => st.kind !== 'project').map((st) => ({ x: st.x, z: st.z }))];
-    const pads = [spawnPoint, ...waystones.stones.filter((st) => st.kind === 'project').map((st) => ({ x: st.x, z: st.z }))];
+    const lines = waystones.mapLines();
     mapPaths = [
-      { color: 'rgba(255, 196, 140, 0.55)', points: road },
-      { color: 'rgba(143, 227, 181, 0.55)', points: pads },
+      ...lines.rings.map((points) => ({ color: 'rgba(255, 196, 140, 0.55)', points })),
+      ...lines.spokes.map((sp) => ({ color: sp.project ? 'rgba(143, 227, 181, 0.55)' : 'rgba(255, 196, 140, 0.55)', points: sp.points })),
     ].filter((p) => p.points.length > 1);
     mapPaths.key = key;
   }
@@ -1545,8 +1569,9 @@ function frame(now) {
         games.collide(pos, r, vel);
       },
     });
-  // waystones stand on bedrock: as safe from the worm as any rock
-  onRock = rocks.nearRock(player.pos.x, player.pos.z, 1.2) || waystones.nearStone(player.pos.x, player.pos.z, SAFE_MARGIN);
+  // waystones stand on bedrock, and so does the whole of their circle: as safe from
+  // the worm as any rock
+  onRock = rocks.nearRock(player.pos.x, player.pos.z, 1.2) || waystones.nearStone(player.pos.x, player.pos.z, SAFE_MARGIN) || waystones.onCourt(player.pos.x, player.pos.z);
   if (!entered) player.rhythm = 0;
   rocks.update(player.pos.x, player.pos.z);
   slideEffects(dt);

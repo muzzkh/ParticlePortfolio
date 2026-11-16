@@ -645,7 +645,7 @@ function startPanel() {
     'div',
     { class: 'i-start' },
     h('h2', { text: 'Plan the desert' }),
-    h('p', { text: `${plural(n, 'entry', 'entries')}: waystones along the road for experience, education and skills, and landing pads on the project path.` }),
+    h('p', { text: `${plural(n, 'entry', 'entries')}: waystones in the circle for experience, education and skills, and landing pads on the ring outside it.` }),
     h(
       'ul',
       {},
@@ -796,7 +796,7 @@ function renderSide() {
     );
   };
   ui.lists.replaceChildren(
-    group('Waystones', 'Along the road, first to last', stones, addStone, 'No waystones yet.'),
+    group('Waystones', 'Round the circle, first to last', stones, addStone, 'No waystones yet.'),
     group('Projects', 'On the project path, first to last', pads, addPad, 'No projects yet.'),
     h(
       'section',
@@ -841,7 +841,7 @@ function addEntry(kind) {
   ui.search.value = '';
   setSel({ type: 'entry', id: e.id });
   focusTitle();
-  toast(kind === 'project' ? 'Project added to the project path. Drag it in the world to place it anywhere.' : 'Waystone added to the road. Drag it in the world to place it anywhere.');
+  toast(kind === 'project' ? 'Project added to the ring of pads. Drag it in the world to place it anywhere.' : 'Waystone added to the circle. Drag it in the world to place it anywhere.');
 }
 
 function moveEntry(id, d) {

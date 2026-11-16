@@ -54,11 +54,47 @@ export class UI {
     this.wave.width = 220 * dpr;
     this.wave.height = 34 * dpr;
     this.waveCtx.scale(dpr, dpr);
+
+    // The intro film starts when the page is revealed (body.ready), whether the desert
+    // reveals it or the start-up fallback in boot.js does.
+    const reveal = new MutationObserver(() => {
+      if (!document.body.classList.contains('ready')) return;
+      reveal.disconnect();
+      this.playFilm();
+    });
+    reveal.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   }
 
   enter() {
     this.intro.classList.add('gone');
     this.hud.classList.remove('hidden');
+    // the film fades out with the intro; then let go of it
+    const film = this.film;
+    if (film) {
+      this.film = null;
+      setTimeout(() => film.remove(), 1600);
+    }
+  }
+
+  // The intro film: plays once behind the title, then rests on its last frame. Where
+  // motion or data is unwelcome, or the browser won't play it, that last frame is shown
+  // as a still instead.
+  playFilm() {
+    const film = $('introFilm');
+    if (!film || this.film || this.intro.classList.contains('gone')) return;
+    this.film = film;
+    const show = () => this.intro.classList.add('film');
+    const still = () => {
+      film.addEventListener('error', () => this.intro.classList.remove('film'), { once: true });
+      film.poster = './intro-still.jpg';
+      show();
+    };
+    const conn = navigator.connection;
+    if ((conn && conn.saveData) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return still();
+    film.addEventListener('playing', show, { once: true });
+    film.preload = 'auto';
+    const playing = film.play();
+    if (playing) playing.catch(still);
   }
 
   toggleHidden() {

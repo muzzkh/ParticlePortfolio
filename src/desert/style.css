@@ -384,7 +384,40 @@ input[type='range']::-moz-range-thumb {
   opacity: 0;
   visibility: hidden;
 }
+/* The intro film covers the live desert behind the title until the desert is entered.
+   It keeps its subject about 70% across, so on a tall screen that part stays in view.
+   Over it, a scrim keeps the title readable whatever the shot. */
+.intro-film {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 70% 50%;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+#intro::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(22, 10, 3, 0.42) 0%, rgba(22, 10, 3, 0.24) 48%, rgba(14, 6, 2, 0.56) 100%),
+    linear-gradient(180deg, rgba(14, 6, 2, 0.3) 0%, rgba(14, 6, 2, 0) 30%, rgba(14, 6, 2, 0) 66%, rgba(14, 6, 2, 0.42) 100%);
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+#intro.film .intro-film,
+#intro.film::before {
+  opacity: 1;
+}
 .intro-inner {
+  position: relative;
+  z-index: 2;
   text-align: center;
   padding: 24px;
   animation: rise 2.2s cubic-bezier(0.2, 0.7, 0.1, 1) both;

@@ -807,7 +807,7 @@ function placementSection(ctx, e, E, k) {
               ctx.rerender();
             },
           },
-          project ? 'Back on the project path' : 'Back on the road',
+          project ? 'Back on the ring of pads' : 'Back in the circle',
         ),
         moveHere(ctx, e, E, k),
         h('button', { type: 'button', class: 'm-btn small', onclick: () => ctx.world.select(e.id) }, 'Show in world'),
@@ -815,7 +815,7 @@ function placementSection(ctx, e, E, k) {
     );
   } else {
     kids.push(
-      h('p', { class: 'i-hint', text: project ? 'Automatic: on the project path, in list order. Drag it in the world view to place it by hand.' : 'Automatic: on the road, in list order. Drag it in the world view to place it by hand.' }),
+      h('p', { class: 'i-hint', text: project ? 'Automatic: on the ring of pads outside the circle, in list order. Drag it in the world view to place it by hand.' : 'Automatic: in the circle, in list order, clockwise. Drag it in the world view to place it by hand.' }),
       h(
         'div',
         { class: 'i-actions' },

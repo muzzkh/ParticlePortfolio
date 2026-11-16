@@ -59,6 +59,34 @@ function smoothstep(e0, e1, x) {
   return t * t * (3 - 2 * t);
 }
 
+// The court: a round pan of calm sand for the circle of waystones to stand on. Within
+// `inner` metres of its middle the dunes are pressed almost flat and the ground brought
+// to one level; from there out to `outer` they rise back to their own height.
+export const COURT_CALM = 0.1; // how much of a dune's height is left in the court
+const court = { x: 0, z: 0, inner: 0, outer: 0, level: 0 };
+export function setCourt(x, z, inner, outer) {
+  court.outer = 0; // measure the ground as it lies without one
+  let sum = terrainHeight(x, z);
+  let n = 1;
+  for (const [r, count] of [[inner * 0.35, 8], [inner * 0.7, 12], [inner, 16]]) {
+    for (let k = 0; k < count; k++) {
+      const a = (k / count) * Math.PI * 2;
+      sum += terrainHeight(x + Math.cos(a) * r, z + Math.sin(a) * r);
+      n++;
+    }
+  }
+  court.x = x;
+  court.z = z;
+  court.inner = inner;
+  court.outer = outer;
+  court.level = sum / n;
+  return court;
+}
+export function clearCourt() {
+  court.outer = 0;
+  return court;
+}
+
 // info: optional object receiving { A, t, crest, prof }
 export function terrainHeight(wx, wz, info) {
   const px = wx + seed.x;
@@ -82,14 +110,21 @@ export function terrainHeight(wx, wz, info) {
   const stoss = up + (up * up * (3 - 2 * up) - up) * 0.55;
   const slip = Math.pow(dn, 1.35);
   const prof = t < DUNE_K ? stoss : slip;
-  let h = prof * (0.12 + 0.88 * crest) * (0.6 + (4.8 - 0.6) * A);
+  // the court: 0 in the middle of it, 1 out on the open sand
+  let open = 1;
+  if (court.outer > 0) {
+    const d = Math.hypot(wx - court.x, wz - court.z);
+    if (d < court.outer) open = smoothstep(court.inner, court.outer, d);
+  }
+  const calm = COURT_CALM + (1 - COURT_CALM) * open;
+  let h = prof * (0.12 + 0.88 * crest) * (0.6 + (4.8 - 0.6) * A) * calm;
   // small oblique dunelets that texture the flats
   const ph2 = (qx * 0.28 + qz * 0.96) / 8.5 + vnoise(qx * 0.05, qz * 0.05) * 1.2;
   const t2 = ph2 - Math.floor(ph2);
   const prof2 = t2 < 0.65 ? smoothstep(0, 1, t2 / 0.65) : Math.pow((1 - t2) / 0.35, 1.2);
-  h += prof2 * 0.55 * (1 - A * 0.75) * vnoise(px * 0.03 + 5.5, pz * 0.03 + 1.7);
-  h += (fbm3(px * 0.004 - 12.3, pz * 0.004 + 5.1) - 0.5) * 16.0;
-  h += (vnoise(px * 0.09, pz * 0.09) - 0.5) * 0.3 * (1 - A * 0.6);
+  h += prof2 * 0.55 * (1 - A * 0.75) * vnoise(px * 0.03 + 5.5, pz * 0.03 + 1.7) * calm;
+  const base = (fbm3(px * 0.004 - 12.3, pz * 0.004 + 5.1) - 0.5) * 16.0 + (vnoise(px * 0.09, pz * 0.09) - 0.5) * 0.3 * (1 - A * 0.6);
+  h += court.level + (base - court.level) * open;
   if (info) {
     info.A = A;
     info.t = t;
@@ -181,6 +216,8 @@ float fbm3(vec2 p) {
 
 export const TERRAIN_GLSL = /* glsl */ `
 uniform vec2 uSeed;
+uniform vec4 uCourt;       // x, z, inner radius, outer radius (0: no court)
+uniform float uCourtLevel;
 const vec2 WIND = vec2(0.8, 0.6);
 const vec2 WINDP = vec2(-0.6, 0.8);
 const float DUNE_K = ${DUNE_K.toFixed(4)};
@@ -209,8 +246,11 @@ void terrainFields(vec2 pw, vec4 m, out vec4 d, out vec4 d2) {
   float ph2 = dot(q, vec2(0.28, 0.96)) / 8.5 + vnoise(q * 0.05) * 1.2;
   float amp2 = 0.55 * (1.0 - A * 0.75) * vnoise(p * 0.03 + vec2(5.5, 1.7));
   float base = m.w + (vnoise(p * 0.09) - 0.5) * 0.3 * (1.0 - A * 0.6);
-  d = vec4(ph0, crest, mix(0.6, 4.8, A), base);
-  d2 = vec4(ph2, amp2, A, 0.0);
+  // the court: the dunes pressed almost flat, the ground brought to one level
+  float open = uCourt.w > 0.0 ? smoothstep(uCourt.z, uCourt.w, distance(pw, uCourt.xy)) : 1.0;
+  float calm = mix(${COURT_CALM.toFixed(4)}, 1.0, open);
+  d = vec4(ph0, crest, mix(0.6, 4.8, A) * calm, mix(uCourtLevel, base, open));
+  d2 = vec4(ph2, amp2 * calm, A, 0.0);
 }
 float duneShape(vec4 d, vec4 d2, out vec4 info) {
   float ph = d.x - (1.0 - d.y) * 0.38; // low crest segments run ahead downwind as horns

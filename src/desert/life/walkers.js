@@ -219,7 +219,8 @@ class Walker {
   dispose() {
     this.ctx.scene.remove(this.f.root);
     this.f.root.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
+      // the suit's parts are one set of geometry shared by every walker: leave those
+      if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
     });
     for (const m of Object.values(this.f.materials)) m.dispose();
     this.bubble.remove();

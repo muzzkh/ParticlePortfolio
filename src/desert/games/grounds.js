@@ -109,10 +109,12 @@ export class GameGrounds {
   // to one side, and the race's start line on the other with its course looping out
   // beyond it, each heading away from where visitors start.
   // settings: site.json `games` ({ worm: { hidden, place: { dx, dz, rot } }, … })
-  layout(sx, sz, roadHeading, settings = {}) {
+  // circle: how far out the ring of waystones round the start reaches; a big circle
+  // pushes the sites further off
+  layout(sx, sz, roadHeading, settings = {}, circle = 0) {
     const gh = roadHeading - Math.PI / 2;
     // [direction from the start, distance, turn of the course toward the open erg]
-    const auto = { worm: [gh, 28, 0], ride: [gh + 0.9, 22, -0.55], race: [gh - 0.62, 52, 0] };
+    const auto = { worm: [gh, Math.max(28, circle + 16), 0], ride: [gh + 0.9, Math.max(22, circle + 11), -0.55], race: [gh - 0.62, Math.max(52, circle + 36), 0] };
     this.spawn = { x: sx, z: sz };
     this.hidden.clear();
     for (const site of this.sites) {

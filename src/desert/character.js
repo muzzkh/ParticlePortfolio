@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { groundHeight, groundGradient } from './noise.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Cloak } from './cloak.js';
 
 const THIGH = 0.45;
@@ -22,6 +23,7 @@ const _d = new THREE.Vector3();
 const _g = { x: 0, z: 0 };
 const _t1 = new THREE.Vector3();
 const _t2 = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
 
 function clamp(v, a, b) {
   return v < a ? a : v > b ? b : v;
@@ -31,22 +33,205 @@ function lerpAngle(a, b, t) {
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * t;
 }
-function limb(radius, length, material) {
-  const geo = new THREE.CapsuleGeometry(radius, Math.max(0.01, length - radius * 0.6), 4, 12);
-  const m = new THREE.Mesh(geo, material);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
-}
-function placeBetween(mesh, a, b) {
-  mesh.position.addVectors(a, b).multiplyScalar(0.5);
+const _x = new THREE.Vector3();
+const _z = new THREE.Vector3();
+const _basis = new THREE.Matrix4();
+// Lay a limb from a to b: its length runs along +y, and its front (+z) is turned as far
+// toward `fwd` as it will go, so what is strapped to the front of it stays in front.
+function placeBetween(obj, a, b, fwd) {
+  obj.position.addVectors(a, b).multiplyScalar(0.5);
   _d.subVectors(b, a).normalize();
-  mesh.quaternion.setFromUnitVectors(UP, _d);
+  _z.copy(fwd).addScaledVector(_d, -fwd.dot(_d));
+  if (_z.lengthSq() < 1e-4) _z.set(0, 1, 0).addScaledVector(_d, -_d.y);
+  _z.normalize();
+  _x.crossVectors(_d, _z);
+  obj.quaternion.setFromRotationMatrix(_basis.makeBasis(_x, _d, _z));
 }
 function shadowed(mesh) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+// ---------------------------------------------------------------------------
+// The walker's parts. Every piece of the suit is a simple solid; the pieces of one part
+// that share a material are baked into a single mesh, so all the straps, plates and
+// pouches cost no more to draw than the bare limbs did. Built once, shared by every
+// walker in the desert.
+// ---------------------------------------------------------------------------
+const TAU = Math.PI * 2;
+const _km = new THREE.Matrix4();
+const _kp = new THREE.Vector3();
+const _kq = new THREE.Quaternion();
+const _ke = new THREE.Euler();
+const _ks = new THREE.Vector3();
+
+class Loop extends THREE.Curve {
+  constructor(rx, rz) {
+    super();
+    this.rx = rx;
+    this.rz = rz;
+  }
+  getPoint(t, target = new THREE.Vector3()) {
+    return target.set(Math.cos(t * TAU) * this.rx, 0, Math.sin(t * TAU) * this.rz);
+  }
+}
+// a band lying flat round the body (or a limb): rx to the side, rz front to back
+const hoop = (rx, rz, tube, radial = 6) => new THREE.TubeGeometry(new Loop(rx, rz), 28, tube, radial, true);
+const sphere = (r, w = 12, h = 10) => new THREE.SphereGeometry(r, w, h);
+const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+const cyl = (rt, rb, h, n = 10) => new THREE.CylinderGeometry(rt, rb, h, n);
+const capsule = (r, len, n = 12) => new THREE.CapsuleGeometry(r, len, 4, n);
+const limbCapsule = (r, length) => capsule(r, Math.max(0.01, length - r * 0.6));
+
+function kit() {
+  const bins = {};
+  const k = {
+    // place a solid: position, rotation (x, y, z), scale; the scale is applied first
+    add(mat, geo, px = 0, py = 0, pz = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
+      geo.applyMatrix4(_km.compose(_kp.set(px, py, pz), _kq.setFromEuler(_ke.set(rx, ry, rz)), _ks.set(sx, sy, sz)));
+      (bins[mat] ||= []).push(geo);
+      return k;
+    },
+    done() {
+      const out = {};
+      for (const [mat, geos] of Object.entries(bins)) {
+        out[mat] = mergeGeometries(geos);
+        out[mat].userData.shared = true; // every walker draws this same geometry
+        for (const g of geos) g.dispose();
+      }
+      return out;
+    },
+  };
+  return k;
+}
+
+let PARTS = null;
+function parts() {
+  if (PARTS) return PARTS;
+
+  // ---- torso (origin at the pelvis, +z forward) ----
+  const body = kit();
+  body
+    .add('suit', sphere(0.14, 16, 12), 0, 0, 0, 0, 0, 0, 1.12, 0.78, 0.88)
+    .add('suit', capsule(0.118, 0.1, 14), 0, 0.16, 0, 0, 0, 0, 1.08, 1, 0.84)
+    .add('suit', capsule(0.145, 0.12, 16), 0, 0.33, 0, 0, 0, 0, 1.2, 1, 0.84)
+    .add('suit', cyl(0.048, 0.055, 0.09), 0, 0.52, 0);
+  for (const sx of [-1, 1]) {
+    body.add('suit', sphere(0.066), sx * 0.2, 0.435, -0.01);
+    // shoulder plates, tipped outward
+    body.add('suitRib', new THREE.SphereGeometry(0.085, 12, 8, 0, TAU, 0, Math.PI / 2), sx * 0.222, 0.452, -0.01, 0, 0, -sx * 0.4, 1.2, 0.72, 1.15);
+    // valves on the chest plate
+    body.add('metal', cyl(0.011, 0.011, 0.022, 8), sx * 0.055, 0.387, 0.134, Math.PI / 2);
+    // the harness: two straps crossing on the chest
+    body.add('wrap', hoop(0.222, 0.129, 0.012, 4), 0, 0.29, 0, 0, 0, sx * 0.62);
+    // reclamation canisters on the back, under the cloak
+    body.add('suitRib', cyl(0.03, 0.03, 0.2, 8), sx * 0.06, 0.32, -0.168);
+  }
+  // catchtubes round the chest
+  for (let i = 0; i < 3; i++) body.add('suitRib', hoop(0.181 - i * 0.003, 0.13, 0.011), 0, 0.22 + i * 0.075, 0);
+  body
+    .add('suitRib', box(0.17, 0.13, 0.03), 0, 0.36, 0.118, -0.12)
+    .add('suitRib', box(0.1, 0.07, 0.02), 0, 0.365, 0.134, -0.12)
+    .add('suitRib', hoop(0.07, 0.064, 0.017), 0, 0.5, 0)
+    .add('suitRib', box(0.2, 0.22, 0.07), 0, 0.32, -0.135);
+  // layered pads down the stomach
+  for (let i = 0; i < 3; i++) body.add('suitRib', box(0.13 - i * 0.014, 0.034, 0.022), 0, 0.2 - i * 0.047, 0.1 - i * 0.003, 0.05);
+  body.add('wrap', hoop(0.157, 0.129, 0.026), 0, 0.05, 0);
+  for (const [x, z, w] of [
+    [0.13, 0.04, 0.07],
+    [-0.12, -0.06, 0.08],
+    [0.02, -0.13, 0.1],
+    [-0.135, 0.05, 0.06],
+  ]) {
+    body.add('wrap', box(w, 0.075, 0.05), x, 0.03, z, 0, Math.atan2(-x, -z), 0);
+  }
+  body
+    .add('metal', box(0.055, 0.045, 0.016), 0, 0.05, 0.134)
+    .add('metal', cyl(0.03, 0.03, 0.014), 0, 0.29, 0.13, Math.PI / 2)
+    // crysknife at the hip: sheath, hilt and pommel, leaning out
+    .add('wrap', box(0.032, 0.2, 0.02), 0.15, -0.04, 0.06, 0, 0, -0.35)
+    .add('bone', cyl(0.012, 0.015, 0.1, 6), 0.201, 0.101, 0.06, 0, 0, -0.35)
+    .add('bone', sphere(0.017, 8, 6), 0.222, 0.157, 0.06)
+    // the mantle: cloth gathered on the shoulders, where the cloak hangs from
+    .add('cloth', hoop(0.212, 0.132, 0.04, 8), 0, 0.478, 0)
+    .add('cloth', hoop(0.13, 0.1, 0.04, 8), 0, 0.512, 0);
+
+  // ---- head (origin at its middle) ----
+  const head = kit();
+  head
+    .add('skin', sphere(0.1, 18, 14), 0, 0, 0, 0, 0, 0, 0.92, 1.05, 1)
+    .add('cloth', new THREE.SphereGeometry(0.128, 22, 16, 0, TAU, 0, Math.PI * 0.62), 0, 0.012, -0.012, -0.55, 0, 0, 0.98, 1.12, 1.08)
+    // drape around the back of the head and neck, open at the face (+z)
+    .add('cloth', new THREE.SphereGeometry(0.132, 18, 12, Math.PI * 0.72, Math.PI * 1.56, Math.PI * 0.3, Math.PI * 0.42), 0, -0.02, -0.012)
+    .add('cloth', new THREE.TorusGeometry(0.085, 0.042, 10, 24), 0, -0.1, 0.005, Math.PI / 2 + 0.15)
+    // the peak of the hood, falling back
+    .add('cloth', new THREE.ConeGeometry(0.05, 0.12, 8), 0, 0.085, -0.115, -2.0)
+    .add('wrap', hoop(0.097, 0.105, 0.012, 5), 0, 0.045, -0.004, -0.2)
+    .add('mask', capsule(0.05, 0.05), 0, -0.045, 0.078, 0, 0, Math.PI / 2, 0.9, 1, 0.75)
+    .add('mask', box(0.02, 0.045, 0.028), 0, 0.0, 0.09);
+  for (const sx of [-1, 1]) {
+    head
+      .add('mask', new THREE.TorusGeometry(0.07, 0.008, 6, 16, Math.PI * 0.9), sx * 0.02, -0.05, 0.02, 0, Math.PI / 2, -0.4)
+      // filter canisters at the cheeks, and the rims of the eyepieces
+      .add('mask', cyl(0.019, 0.019, 0.05, 8), sx * 0.052, -0.062, 0.084, Math.PI / 2, 0, -sx * 0.45)
+      .add('mask', new THREE.TorusGeometry(0.02, 0.0065, 6, 14), sx * 0.034, 0.014, 0.087)
+      .add('eye', sphere(0.0135, 10, 8), sx * 0.034, 0.014, 0.088);
+  }
+
+  // ---- limbs: +y runs down the limb, +z is its front; body +x is the limb's -x ----
+  const thigh = [1, -1].map((side) =>
+    kit()
+      .add('suit', limbCapsule(0.07, THIGH))
+      .add('wrap', hoop(0.076, 0.076, 0.011, 5), 0, -0.07, 0)
+      .add('wrap', hoop(0.075, 0.075, 0.011, 5), 0, 0.06, 0)
+      .add('wrap', box(0.04, 0.12, 0.075), -side * 0.078, -0.005, 0)
+      .done(),
+  );
+  const shin = kit()
+    .add('suit', limbCapsule(0.056, SHIN))
+    // knee guard and a plate down the shin
+    .add('suitRib', sphere(0.068, 10, 8), 0, -0.215, 0.028, 0, 0, 0, 1, 1.3, 0.7)
+    .add('suitRib', capsule(0.026, 0.17, 8), 0, -0.03, 0.042, 0, 0, 0, 1.5, 1, 0.6)
+    .add('wrap', hoop(0.058, 0.058, 0.009, 5), 0, 0.1, 0)
+    .add('wrap', hoop(0.058, 0.058, 0.009, 5), 0, 0.136, 0)
+    .add('boot', cyl(0.058, 0.064, 0.075, 12), 0, 0.185, 0)
+    .done();
+  const knee = kit().add('suitRib', sphere(0.058, 10, 8)).done();
+  // origin at the ankle end of the foot, +z toward the toes
+  const boot = kit()
+    .add('boot', new THREE.CapsuleGeometry(0.052, 0.15, 4, 10).rotateX(Math.PI / 2).scale(1, 0.72, 1))
+    .add('boot', box(0.085, 0.05, 0.07), 0, -0.012, -0.075)
+    .add('suit', box(0.098, 0.02, 0.262), 0, -0.04, 0)
+    .add('suitRib', sphere(0.05, 10, 8), 0, -0.006, 0.09, 0, 0, 0, 1, 0.62, 1)
+    .done();
+  const upperArm = kit()
+    .add('suit', limbCapsule(0.05, UPPER))
+    .add('wrap', hoop(0.054, 0.054, 0.009, 5), 0, -0.02, 0)
+    .add('suitRib', sphere(0.052, 10, 8), 0, 0.14, -0.018, 0, 0, 0, 1, 1.1, 0.8)
+    .done();
+  const forearm = kit()
+    .add('cloth', limbCapsule(0.044, FORE))
+    // a bracer, bound at both ends
+    .add('wrap', cyl(0.047, 0.05, 0.12, 12), 0, 0.02, 0)
+    .add('wrap', hoop(0.051, 0.051, 0.007, 5), 0, -0.045, 0)
+    .add('wrap', hoop(0.049, 0.049, 0.007, 5), 0, 0.085, 0)
+    .done();
+  // origin at the wrist, +y on from the forearm
+  const hand = kit()
+    .add('mask', sphere(0.04, 10, 8), 0, 0.025, 0, 0, 0, 0, 0.85, 1.3, 0.62)
+    .add('mask', sphere(0.017, 8, 6), 0, 0.02, 0.03, 0, 0, 0, 1, 1.4, 1)
+    .done();
+
+  PARTS = { body: body.done(), head: head.done(), thigh, shin, knee, boot, upperArm, forearm, hand };
+  return PARTS;
+}
+
+// one part, put together in this walker's own materials
+function assemble(part, materials) {
+  const g = new THREE.Group();
+  for (const [key, geo] of Object.entries(part)) g.add(shadowed(new THREE.Mesh(geo, materials[key])));
+  return g;
 }
 
 export class Fremen {
@@ -62,112 +247,31 @@ export class Fremen {
     const mask = new THREE.MeshStandardMaterial({ color: '#1a1817', roughness: 0.4, metalness: 0.5 });
     const eye = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.25, 0.75, 3.2), toneMapped: true });
     const skin = new THREE.MeshStandardMaterial({ color: '#8a6450', roughness: 0.7 });
-    this.materials = { suit, cloth, wrap, boot, mask, eye, skin, suitRib };
+    const metal = new THREE.MeshStandardMaterial({ color: '#7a6448', roughness: 0.42, metalness: 0.7 });
+    const bone = new THREE.MeshStandardMaterial({ color: '#d9ccb0', roughness: 0.35 });
+    this.materials = { suit, cloth, wrap, boot, mask, eye, skin, suitRib, metal, bone };
 
     // ---- torso group (origin = pelvis) ----
-    const body = new THREE.Group();
+    const kitParts = parts();
+    const body = assemble(kitParts.body, this.materials);
     this.body = body;
     this.root.add(body);
 
-    const pelvis = shadowed(new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 12), suit));
-    pelvis.scale.set(1.12, 0.78, 0.88);
-    body.add(pelvis);
-    const belt = shadowed(new THREE.Mesh(new THREE.TorusGeometry(0.148, 0.026, 8, 24), wrap));
-    belt.rotation.x = Math.PI / 2;
-    belt.scale.set(1.03, 0.86, 1);
-    belt.position.y = 0.05;
-    body.add(belt);
-    for (const [x, z, w] of [
-      [0.13, 0.04, 0.07],
-      [-0.12, -0.06, 0.08],
-      [0.02, -0.13, 0.1],
-    ]) {
-      const pouch = shadowed(new THREE.Mesh(new THREE.BoxGeometry(w, 0.075, 0.05), wrap));
-      pouch.position.set(x, 0.03, z);
-      pouch.lookAt(0, 0.03, 0);
-      body.add(pouch);
-    }
-    // crysknife hilt at the hip
-    const knife = shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.016, 0.16, 6), new THREE.MeshStandardMaterial({ color: '#d9ccb0', roughness: 0.35 })));
-    knife.position.set(0.15, 0.03, 0.06);
-    knife.rotation.z = 0.5;
-    body.add(knife);
-
-    const abdomen = shadowed(new THREE.Mesh(new THREE.CapsuleGeometry(0.118, 0.1, 4, 14), suit));
-    abdomen.position.y = 0.16;
-    abdomen.scale.set(1.08, 1, 0.84);
-    body.add(abdomen);
-    const chest = shadowed(new THREE.Mesh(new THREE.CapsuleGeometry(0.145, 0.12, 4, 16), suit));
-    chest.position.y = 0.33;
-    chest.scale.set(1.2, 1, 0.84);
-    body.add(chest);
-    // stillsuit catchtubes / ribbing
-    for (let i = 0; i < 3; i++) {
-      const rib = shadowed(new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.011, 6, 28), suitRib));
-      rib.rotation.x = Math.PI / 2;
-      rib.position.y = 0.22 + i * 0.075;
-      rib.scale.set(1.2 - i * 0.02, 0.86, 1);
-      body.add(rib);
-    }
-    const chestPlate = shadowed(new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.03), suitRib));
-    chestPlate.position.set(0, 0.36, 0.12);
-    chestPlate.rotation.x = -0.12;
-    body.add(chestPlate);
-
-    const neck = shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.055, 0.09, 10), suit));
-    neck.position.y = 0.52;
-    body.add(neck);
-
     // ---- head ----
-    const head = new THREE.Group();
+    const head = assemble(kitParts.head, this.materials);
     head.position.y = 0.64;
     body.add(head);
     this.head = head;
-    const skull = shadowed(new THREE.Mesh(new THREE.SphereGeometry(0.1, 18, 14), skin));
-    skull.scale.set(0.92, 1.05, 1);
-    head.add(skull);
-    const hood = shadowed(new THREE.Mesh(new THREE.SphereGeometry(0.128, 22, 16, 0, Math.PI * 2, 0, Math.PI * 0.62), cloth));
-    hood.scale.set(0.98, 1.12, 1.08);
-    hood.position.set(0, 0.012, -0.012);
-    hood.rotation.x = -0.55; // tip the opening towards the face
-    head.add(hood);
-    // drape around the back of the head and neck, open at the face (+z)
-    const hoodBack = shadowed(new THREE.Mesh(new THREE.SphereGeometry(0.132, 18, 12, Math.PI * 0.72, Math.PI * 1.56, Math.PI * 0.3, Math.PI * 0.42), cloth));
-    hoodBack.position.set(0, -0.02, -0.012);
-    head.add(hoodBack);
-    const scarf = shadowed(new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.042, 10, 24), cloth));
-    scarf.rotation.x = Math.PI / 2 + 0.15;
-    scarf.position.set(0, -0.1, 0.005);
-    head.add(scarf);
-    const faceMask = shadowed(new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.05, 4, 12), mask));
-    faceMask.rotation.z = Math.PI / 2;
-    faceMask.scale.set(0.9, 1, 0.75);
-    faceMask.position.set(0, -0.045, 0.078);
-    head.add(faceMask);
-    const tube = shadowed(new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.008, 6, 16, Math.PI * 0.9), mask));
-    tube.position.set(0.02, -0.05, 0.02);
-    tube.rotation.set(0, Math.PI / 2, -0.4);
-    head.add(tube);
-    for (const s of [-1, 1]) {
-      const e = new THREE.Mesh(new THREE.SphereGeometry(0.0135, 10, 8), eye);
-      e.position.set(s * 0.034, 0.014, 0.088);
-      head.add(e);
-    }
 
     // ---- limbs (world space) ----
-    this.thighs = [limb(0.07, THIGH, suit), limb(0.07, THIGH, suit)];
-    this.shins = [limb(0.056, SHIN, suit), limb(0.056, SHIN, suit)];
-    this.upperArms = [limb(0.05, UPPER, suit), limb(0.05, UPPER, suit)];
-    this.forearms = [limb(0.044, FORE, cloth), limb(0.044, FORE, cloth)];
-    this.hands = [0, 1].map(() => shadowed(new THREE.Mesh(new THREE.SphereGeometry(0.043, 10, 8), mask)));
-    this.boots = [0, 1].map(() => {
-      const g = new THREE.CapsuleGeometry(0.052, 0.15, 4, 10);
-      g.rotateX(Math.PI / 2);
-      g.scale(1, 0.72, 1);
-      const m = shadowed(new THREE.Mesh(g, boot));
-      return m;
-    });
-    this.knees = [0, 1].map(() => shadowed(new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), suitRib)));
+    const pair = (part) => [0, 1].map((i) => assemble(Array.isArray(part) ? part[i] : part, this.materials));
+    this.thighs = pair(kitParts.thigh);
+    this.shins = pair(kitParts.shin);
+    this.upperArms = pair(kitParts.upperArm);
+    this.forearms = pair(kitParts.forearm);
+    this.hands = pair(kitParts.hand);
+    this.boots = pair(kitParts.boot);
+    this.knees = pair(kitParts.knee);
     for (const arr of [this.thighs, this.shins, this.upperArms, this.forearms, this.hands, this.boots, this.knees]) {
       for (const m of arr) this.root.add(m);
     }
@@ -492,6 +596,7 @@ export class Fremen {
 
     // ---------------- legs ----------------
     const knees = [];
+    _fwd.set(fx, 0, fz);
     for (let i = 0; i < 2; i++) {
       const f = feet[i];
       const hip = _t1.set(f.side * HIP_W, -0.03, 0);
@@ -499,8 +604,8 @@ export class Fremen {
       const ankle = new THREE.Vector3(f.pos.x, f.y + ANKLE, f.pos.z);
       const knee = this._solveKnee(hip, ankle, fx + lx * f.side * 0.12, fz + lz * f.side * 0.12);
       knees.push(knee);
-      placeBetween(this.thighs[i], hip, knee);
-      placeBetween(this.shins[i], knee, ankle);
+      placeBetween(this.thighs[i], hip, knee, _fwd);
+      placeBetween(this.shins[i], knee, ankle, _fwd);
       this.knees[i].position.copy(knee);
       const b = this.boots[i];
       const cy = Math.cos(f.yaw);
@@ -536,9 +641,10 @@ export class Fremen {
       const shoulderW = this.body.localToWorld(shoulder.clone());
       const elbowW = this.body.localToWorld(elbowL);
       const handW = this.body.localToWorld(handL);
-      placeBetween(this.upperArms[i], shoulderW, elbowW);
-      placeBetween(this.forearms[i], elbowW, handW);
+      placeBetween(this.upperArms[i], shoulderW, elbowW, _fwd);
+      placeBetween(this.forearms[i], elbowW, handW, _fwd);
       this.hands[i].position.copy(handW);
+      this.hands[i].quaternion.copy(this.forearms[i].quaternion);
     }
 
     // ---------------- cloak ----------------

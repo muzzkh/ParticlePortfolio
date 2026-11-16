@@ -225,6 +225,8 @@ export function createTerrain(extraUniforms) {
 
   const uniforms = {
     uSeed: { value: new THREE.Vector2() },
+    uCourt: { value: new THREE.Vector4() },
+    uCourtLevel: { value: 0 },
     uTime: { value: 0 },
     uWindPhase: { value: 0 },
     uWind: { value: 0.5 },
@@ -252,7 +254,7 @@ export function createTerrain(extraUniforms) {
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>\n${NORMAL_AND_COLOUR}`)
       .replace('#include <opaque_fragment>', `${SPARKLE}\n#include <opaque_fragment>`);
   };
-  material.customProgramCacheKey = () => 'arrakis-terrain-6';
+  material.customProgramCacheKey = () => 'arrakis-terrain-7';
 
   const depthMaterial = new THREE.MeshDepthMaterial();
   depthMaterial.onBeforeCompile = (shader) => {
@@ -263,7 +265,7 @@ export function createTerrain(extraUniforms) {
       // never shadows the finer per-pixel surface; character & rock shadows stay tight
       .replace('#include <begin_vertex>', `${VERTEX_HEIGHT}\n  transformed -= uSunDir * 0.35;`);
   };
-  depthMaterial.customProgramCacheKey = () => 'arrakis-terrain-depth-5';
+  depthMaterial.customProgramCacheKey = () => 'arrakis-terrain-depth-6';
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.customDepthMaterial = depthMaterial;

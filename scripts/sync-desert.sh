@@ -4,9 +4,9 @@
 #   scripts/sync-desert.sh [path-to-arrakis-checkout]   (default: ../arrakis)
 #
 # Copies arrakis/src into src/desert, arrakis/index.html to ./index.html,
-# arrakis/management/index.html to ./management/index.html and the desert's favicon
-# and start-up script into public/. (The résumé PDF and everything added at /management live in public/
-# here.) src/desert/resume/content.js is kept: here it points the desert at
+# arrakis/management/index.html to ./management/index.html and the desert's favicon,
+# start-up script and intro film (with its still) into public/. (The résumé PDF and
+# everything added at /management live in public/ here.) src/desert/resume/content.js is kept: here it points the desert at
 # src/data/site.json and tells /management to publish to this repository.
 set -euo pipefail
 
@@ -35,5 +35,7 @@ mkdir -p "$ROOT/management"
 sed -e 's#\.\./src/#../src/desert/#g' "$SRC/management/index.html" > "$ROOT/management/index.html"
 cp "$SRC/public/waystone.svg" "$ROOT/public/waystone.svg"
 cp "$SRC/public/boot.js" "$ROOT/public/boot.js"
+# the intro film and its still
+cp "$SRC/public/intro.mp4" "$SRC/public/intro-still.jpg" "$ROOT/public/"
 
 echo "Synced the desert from $SRC ($(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo 'unknown rev'))"

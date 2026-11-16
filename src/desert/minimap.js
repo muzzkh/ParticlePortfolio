@@ -2,8 +2,8 @@ import { groundHeight } from './noise.js';
 import { categoryOf } from './resume/normalize.js';
 
 // The minimap: a round map in a corner that turns with the view (up on the map is up
-// on the screen), and a full map it opens into. Both show the dunes, rock, the road and
-// the project path, every stone and pad (filled once found), the games, where visitors
+// on the screen), and a full map it opens into. Both show the dunes, rock, the circle of
+// stones and the spokes out to the pads, every stone and pad (filled once found), the games, where visitors
 // start, what the camera sees, the worm when it hunts, and you. On the full map, tap a
 // stone, a game or anywhere on the sand to go there.
 
@@ -232,7 +232,7 @@ export class Minimap {
       ctx.fill();
     }
 
-    // the road and the project path
+    // the circle of stones and the spokes out to the pads
     ctx.lineWidth = Math.max(1, 1.4 * dpr);
     ctx.setLineDash([3 * dpr, 4 * dpr]);
     for (const path of s.paths) {

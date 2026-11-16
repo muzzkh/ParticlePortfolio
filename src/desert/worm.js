@@ -1,18 +1,65 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { groundHeight } from './noise.js';
 
-const RINGS = 290;
-const SPACING = 0.32; // body length ≈ 93 m, longer than the visible arc so the tail never shows mid-breach
-const RADIAL = 32;
+const TAU = Math.PI * 2;
+const SPACING = 0.22; // metres between rings of the body
+const RINGS = 424; // body length ≈ 93 m, longer than the visible arc so the tail never shows mid-breach
+const RADIAL = 40;
+const COLS = RADIAL + 1;
 const R_BODY = 3.4;
-const R_LIP = 3.0;
+const LENGTH = (RINGS - 1) * SPACING;
 const HIST_STEP = 0.2;
-const RIB = 1.35; // metres between annular ribs
+const CROSS_STEP = 6; // rings between the samples that look for where the body pierces the sand
+
+// The hide is a run of overlapping segments of uneven length. The same warp is written
+// into the skin's shader, which draws the crease between two segments and the plates
+// each one is cracked into: keep the two in step.
+const SEG = 1.4;
+const SEG_A = 0.4;
+const SEG_F1 = 0.83;
+const SEG_B = 0.22;
+const SEG_F2 = 2.1;
+
+// The mouth. One skin runs from the hide, round a thick lip and back down the throat, so
+// there is nothing to see through. It is always wide open: the front of the worm flares
+// out past the width of its body to a lip of three lobes, and the throat is lined with
+// teeth.
+const SNOUT = 4.5; // metres of the front that flare out to the lip
+const SNOUT_ROWS = Math.ceil(SNOUT / SPACING) + 1;
+const GAPE = 3.3; // radius of the opening
+const LIP = 0.36; // half the lip's thickness
+const LOBE = 1.7; // how far the three lobes of the lip reach forward
+const FLARE = 0.7; // and outward
+const LIP_ROWS = 7;
+const THROAT_STEP = 2; // rings of the body between rows of the throat
+const THROAT_ROWS = 19;
+const THROAT_DEPTH = (THROAT_ROWS - 1) * THROAT_STEP * SPACING;
+const OUTER0 = 1 + THROAT_ROWS + LIP_ROWS; // first row of the hide
+const ROWS = OUTER0 + RINGS + 1;
+
+// rows of teeth down the throat: [ring, how many, length, lean forward (radians)]
+const TEETH = [
+  [1, 56, 1.3, 0.3],
+  [3, 52, 1.2, 0.12],
+  [5, 46, 1.08, -0.04],
+  [7, 42, 0.96, -0.18],
+  [10, 36, 0.82, -0.3],
+  [13, 30, 0.68, -0.42],
+  [16, 26, 0.56, -0.5],
+];
+const TOOTH_COUNT = TEETH.reduce((n, r) => n + r[1], 0);
 
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _s = new THREE.Vector3();
+const _p = new THREE.Vector3();
 const UPV = new THREE.Vector3(0, 1, 0);
+
+function smoothstep(e0, e1, x) {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
 
 // ---------------------------------------------------------------------------
 // Thumper
@@ -101,78 +148,75 @@ export class Thumper {
 // ---------------------------------------------------------------------------
 // Sandworm
 // ---------------------------------------------------------------------------
-function ribProfile(s) {
-  const k = 0.5 + 0.5 * Math.cos((s / RIB) * Math.PI * 2);
-  return 1 - 0.075 * Math.pow(k, 8) + 0.02 * Math.pow(1 - k, 2);
+function segCoord(s) {
+  return (s + SEG_A * Math.sin(s * SEG_F1) + SEG_B * Math.sin(s * SEG_F2 + 1.3)) / SEG;
 }
+// radius of the hide at ring i, mouth aside
 function radiusAt(i) {
   const s = i * SPACING;
-  const head = Math.min(1, s / 2.5);
-  const base = R_LIP + (R_BODY - R_LIP) * head * head * (3 - 2 * head);
+  const sc = segCoord(s);
+  const f = sc - Math.floor(sc);
+  // each segment swells toward its rear edge, which laps over the front of the next
+  const rib = 0.075 * (1 - Math.pow(f, 0.7)) + 0.03 * Math.exp(-((f / 0.07) ** 2));
   // the last stretch tapers to a closed tail
-  const toEnd = (RINGS - 1) * SPACING - s;
-  const tail = Math.min(1, toEnd / 22);
-  const taper = 0.1 + 0.9 * Math.sqrt(tail * (2 - tail));
-  return base * ribProfile(s) * taper;
+  const tail = Math.min(1, (LENGTH - s) / 24);
+  const taper = 0.02 + 0.98 * Math.sqrt(tail * (2 - tail));
+  return R_BODY * (1 - smoothstep(2, 6, s) * rib) * taper;
+}
+// how far the three lobes of the lip carry back along the snout and the throat
+function lobeReach(s) {
+  return 1 - smoothstep(0, 2.5, s);
+}
+// the throat's width at depth s, as a fraction of the opening
+function funnel(s) {
+  return (1 - 0.52 * smoothstep(0, THROAT_DEPTH, s)) * (1 + 0.04 * Math.sin(s * 7) * smoothstep(0.2, 1, s));
 }
 
-function buildPetal(k, len) {
-  const a0 = (k / 3) * Math.PI * 2 + Math.PI / 2;
-  const U = 14;
-  const V = 16;
-  const positions = [];
-  const uvs = [];
-  const pivot = new THREE.Vector3(Math.cos(a0) * R_LIP, Math.sin(a0) * R_LIP, 0);
-  for (let j = 0; j <= V; j++) {
-    const v = j / V;
-    const r = R_LIP * (1 - 0.94 * Math.pow(v, 1.25));
-    const halfArc = (Math.PI / 3 - 0.05) * (1 - 0.35 * v);
-    for (let i = 0; i <= U; i++) {
-      const u = (i / U) * 2 - 1;
-      const ang = a0 + u * halfArc;
-      // petals bulge slightly outwards like a closed bud
-      const bulge = 1 + Math.sin(Math.PI * v) * 0.08;
-      positions.push(Math.cos(ang) * r * bulge - pivot.x, Math.sin(ang) * r * bulge - pivot.y, v * len);
-      uvs.push(i / U, v);
-    }
-  }
-  const index = [];
-  for (let j = 0; j < V; j++) {
-    for (let i = 0; i < U; i++) {
-      const a = j * (U + 1) + i;
-      const b = a + 1;
-      const c = a + (U + 1);
-      const d = c + 1;
-      index.push(a, b, c, b, d, c);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geo.setIndex(index);
-  geo.computeVertexNormals();
-
-  // teeth on the inner face
-  const teeth = [];
-  for (let j = 1; j < 7; j++) {
-    const v = j / 8;
-    const r = R_LIP * (1 - 0.94 * Math.pow(v, 1.25));
-    const halfArc = (Math.PI / 3 - 0.05) * (1 - 0.35 * v);
-    const n = Math.max(3, Math.round(9 * (1 - v)));
-    for (let i = 0; i < n; i++) {
-      const u = n === 1 ? 0 : (i / (n - 1)) * 1.7 - 0.85;
-      const ang = a0 + u * halfArc;
-      const t = new THREE.ConeGeometry(0.07 + 0.05 * (1 - v), 0.35 + 0.35 * (1 - v), 5);
-      // cone points +y; aim it inwards (towards the axis) and a little back into the throat
-      const inward = new THREE.Vector3(-Math.cos(ang), -Math.sin(ang), -0.35).normalize();
-      t.applyMatrix4(_m.makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(UPV, inward)));
-      t.translate(Math.cos(ang) * r * 0.97 - pivot.x, Math.sin(ang) * r * 0.97 - pivot.y, v * len);
-      teeth.push(t);
-    }
-  }
-  const teethGeo = mergeGeometries(teeth);
-  return { geo, teethGeo, pivot, axis: new THREE.Vector3(-Math.sin(a0), Math.cos(a0), 0) };
+const SKIN_VERT = /* glsl */ `
+attribute vec2 aBody;
+attribute vec2 aMouth;
+varying vec2 vBody;
+varying vec2 vMouth;
+`;
+const SKIN_FRAG = /* glsl */ `
+uniform vec3 uDust;
+uniform vec3 uGlow;
+varying vec2 vBody;
+varying vec2 vMouth;
+float wHash(float n) {
+  return fract(sin(n * 127.1 + 3.7) * 43758.5453);
 }
+`;
+// Drawn over the vertex colours: the crease between segments, the plates each segment is
+// cracked into, and fine wrinkles running back from the lip.
+const SKIN_HIDE = /* glsl */ `
+float hide = 1.0 - smoothstep(0.3, 0.7, vMouth.x);
+{
+  float s = vBody.y;
+  float sc = (s + ${SEG_A.toFixed(3)} * sin(s * ${SEG_F1.toFixed(3)}) + ${SEG_B.toFixed(3)} * sin(s * ${SEG_F2.toFixed(3)} + 1.3)) / ${SEG.toFixed(3)};
+  float seg = floor(sc);
+  float f = sc - seg;
+  float amt = smoothstep(2.0, 6.0, s) * hide;
+  float crease = 1.0 - smoothstep(0.015, 0.06 + fwidth(sc), min(f, 1.0 - f));
+  // a few cracks wander across each segment
+  float n = 3.0 + floor(wHash(seg) * 4.0);
+  float p = vBody.x / 6.2831853 * n + wHash(seg + 31.0) + 0.05 * sin(f * 9.0 + seg * 2.3);
+  float pi = floor(p);
+  float pf = p - pi;
+  float crack = 1.0 - smoothstep(0.004, 0.014 + fwidth(p), min(pf, 1.0 - pf));
+  crack *= smoothstep(0.03, 0.2, f);
+  // fine ridges run the length of it, each segment's set a little out of step with the next
+  float ridge = sin(vBody.x * 44.0 + wHash(seg + 5.0) * 6.2831853 + 0.7 * sin(f * 5.0 + seg));
+  ridge = smoothstep(0.35, 1.0, ridge) * (1.0 - 0.6 * f);
+  float tint = wHash(seg * 17.0 + mod(pi, n));
+  vec3 c = diffuseColor.rgb;
+  c *= mix(1.0, (0.92 + 0.12 * tint) * (0.86 + 0.22 * f), amt);
+  c *= 1.0 - amt * max(max(0.66 * crease, 0.4 * crack), 0.16 * ridge);
+  float wr = sin(vBody.x * 54.0 + sin(s * 1.7) * 1.4);
+  c *= 1.0 - 0.1 * hide * (1.0 - amt) * smoothstep(-2.0, 0.5, s) * smoothstep(0.55, 1.0, wr);
+  diffuseColor.rgb = c;
+}
+`;
 
 export class Sandworm {
   constructor(scene) {
@@ -182,45 +226,86 @@ export class Sandworm {
     this.head = new THREE.Vector3();
     this.dir = new THREE.Vector3(1, 0, 0);
     this.history = [];
-    this.open = 0;
     this.visibleAmount = 0;
     this.events = [];
 
-    // ---- body geometry ----
-    const vcount = RINGS * (RADIAL + 1);
+    // ---- the skin: throat, lip and hide as one grid of ROWS x COLS vertices ----
+    const vcount = ROWS * COLS;
     const geo = new THREE.BufferGeometry();
     this.posAttr = new THREE.BufferAttribute(new Float32Array(vcount * 3), 3).setUsage(THREE.DynamicDrawUsage);
     this.norAttr = new THREE.BufferAttribute(new Float32Array(vcount * 3), 3).setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('position', this.posAttr);
     geo.setAttribute('normal', this.norAttr);
+
+    // around the body: where the three lobes of the mouth are, and their folds
+    this.cos = new Float32Array(COLS);
+    this.sin = new Float32Array(COLS);
+    this.lobe = new Float32Array(COLS); // 1 on a lobe, 0 in the dip between two
+    for (let j = 0; j < COLS; j++) {
+      const th = (j / RADIAL) * TAU;
+      const g = 0.5 + 0.5 * Math.cos(3 * th);
+      this.cos[j] = Math.cos(th);
+      this.sin[j] = Math.sin(th);
+      this.lobe[j] = Math.pow(g, 1.3);
+    }
+
     const colors = new Float32Array(vcount * 3);
-    const skinA = new THREE.Color('#7d6b58');
-    const skinB = new THREE.Color('#9a8670');
-    const groove = new THREE.Color('#3b2e25');
+    const body = new Float32Array(vcount * 2); // angle round the body, metres back from the lip
+    const mouth = new Float32Array(vcount * 2); // 1 inside the mouth, glow from the gullet
+    this.jitter = new Float32Array(RINGS * COLS);
+    const skinA = new THREE.Color('#7a6853');
+    const skinB = new THREE.Color('#9c8970');
+    const lipCol = new THREE.Color('#8b5e4c');
+    const fleshA = new THREE.Color('#6a2c20');
+    const fleshB = new THREE.Color('#170605');
     const c = new THREE.Color();
-    this.jitter = new Float32Array(vcount);
-    for (let i = 0; i < RINGS; i++) {
-      const s = i * SPACING;
-      const k = 0.5 + 0.5 * Math.cos((s / RIB) * Math.PI * 2);
-      for (let j = 0; j <= RADIAL; j++) {
-        const idx = i * (RADIAL + 1) + j;
-        const jj = j % RADIAL;
-        const n = Math.sin(jj * 1.7 + i * 0.37) * 0.5 + Math.sin(jj * 0.61 - i * 0.23) * 0.5;
-        c.copy(skinA).lerp(skinB, 0.5 + 0.5 * n);
-        c.lerp(groove, Math.pow(k, 6) * 0.85);
-        colors[idx * 3] = c.r;
-        colors[idx * 3 + 1] = c.g;
-        colors[idx * 3 + 2] = c.b;
-        this.jitter[idx] = 1 + (Math.sin(jj * 2.3 + i * 1.1) * Math.sin(i * 0.7 + jj * 0.4)) * 0.018;
+    const put = (k, j, inner, glow, s) => {
+      const idx = k * COLS + j;
+      colors[idx * 3] = c.r;
+      colors[idx * 3 + 1] = c.g;
+      colors[idx * 3 + 2] = c.b;
+      body[idx * 2] = (j / RADIAL) * TAU;
+      body[idx * 2 + 1] = s;
+      mouth[idx * 2] = inner;
+      mouth[idx * 2 + 1] = glow;
+    };
+    for (let j = 0; j < COLS; j++) {
+      // the gullet, then the throat from its depths up to the lip
+      c.copy(fleshB);
+      put(0, j, 1, 1, -10);
+      for (let q = 0; q < THROAT_ROWS; q++) {
+        const depth = q / (THROAT_ROWS - 1);
+        c.copy(fleshA).lerp(fleshB, Math.pow(depth, 0.7));
+        // darker in the troughs between the throat's ridges
+        c.multiplyScalar(0.85 + 0.15 * Math.sin(q * THROAT_STEP * SPACING * 7));
+        put(THROAT_ROWS - q, j, 1, smoothstep(0.25, 1, depth) * 0.9, -10);
       }
+      for (let m = 1; m <= LIP_ROWS; m++) {
+        const u = m / (LIP_ROWS + 1);
+        c.copy(fleshA).lerp(lipCol, smoothstep(0.2, 0.9, u));
+        put(THROAT_ROWS + m, j, 1 - smoothstep(0.35, 0.95, u), 0, -10);
+      }
+      const jj = j % RADIAL;
+      for (let i = 0; i < RINGS; i++) {
+        const s = i * SPACING;
+        const n = Math.sin(jj * 1.7 + i * 0.26) * 0.5 + Math.sin(jj * 0.61 - i * 0.16) * 0.5;
+        c.copy(skinA).lerp(skinB, 0.5 + 0.5 * n);
+        c.lerp(lipCol, (1 - smoothstep(0, 1.4, s)) * 0.8);
+        put(OUTER0 + i, j, 0, 0, s);
+        this.jitter[i * COLS + j] = 1 + Math.sin(jj * 2.3 + i * 0.76) * Math.sin(i * 0.48 + jj * 0.4) * 0.016;
+      }
+      c.copy(skinA);
+      put(ROWS - 1, j, 0, 0, LENGTH);
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('aBody', new THREE.BufferAttribute(body, 2));
+    geo.setAttribute('aMouth', new THREE.BufferAttribute(mouth, 2));
     const index = [];
-    for (let i = 0; i < RINGS - 1; i++) {
+    for (let k = 0; k < ROWS - 1; k++) {
       for (let j = 0; j < RADIAL; j++) {
-        const a = i * (RADIAL + 1) + j;
+        const a = k * COLS + j;
         const b = a + 1;
-        const d = a + (RADIAL + 1);
+        const d = a + COLS;
         const e = d + 1;
         index.push(a, d, b, b, d, e);
       }
@@ -232,13 +317,20 @@ export class Sandworm {
     const skinMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0.04 });
     skinMat.onBeforeCompile = (shader) => {
       shader.uniforms.uDust = { value: dustColor };
+      shader.uniforms.uGlow = { value: new THREE.Color(2.6, 0.85, 0.2) };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>${SKIN_VERT}`)
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBody = aBody;\nvMouth = aMouth;');
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform vec3 uDust;')
+        .replace('#include <common>', `#include <common>${SKIN_FRAG}`)
+        .replace('#include <color_fragment>', `#include <color_fragment>${SKIN_HIDE}`)
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.5, vMouth.x);')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += uGlow * vMouth.y * vMouth.y;')
         .replace(
           '#include <normal_fragment_begin>',
           `#include <normal_fragment_begin>
           vec3 wN = inverseTransformDirection(normal, viewMatrix);
-          diffuseColor.rgb = mix(diffuseColor.rgb, uDust, smoothstep(0.15, 0.85, wN.y) * 0.6);`,
+          diffuseColor.rgb = mix(diffuseColor.rgb, uDust, smoothstep(0.15, 0.85, wN.y) * 0.6 * hide);`,
         );
     };
     this.mesh = new THREE.Mesh(geo, skinMat);
@@ -248,67 +340,33 @@ export class Sandworm {
     this.mesh.visible = false;
     scene.add(this.mesh);
 
-    // ---- mouth ----
+    // ---- teeth: rows of long needles down the throat ----
     this.headGroup = new THREE.Group();
-    this.headGroup.matrixAutoUpdate = false;
     this.headGroup.visible = false;
     scene.add(this.headGroup);
-    const petalMat = new THREE.MeshStandardMaterial({ color: '#86735e', roughness: 0.85, side: THREE.DoubleSide });
-    petalMat.onBeforeCompile = (shader) => {
-      shader.uniforms.uInner = { value: new THREE.Color('#6e3426') };
-      shader.uniforms.uDust = { value: dustColor };
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform vec3 uInner;\nuniform vec3 uDust;')
-        .replace(
-          '#include <normal_fragment_begin>',
-          `#include <normal_fragment_begin>
-          vec3 wN = inverseTransformDirection(normal, viewMatrix);
-          diffuseColor.rgb = gl_FrontFacing ? mix(diffuseColor.rgb, uDust, smoothstep(0.2, 0.9, wN.y) * 0.5) : uInner;`,
-        );
-    };
+    const toothGeo = new THREE.ConeGeometry(1, 1, 6, 1).translate(0, 0.5, 0);
     const toothMat = new THREE.MeshStandardMaterial({ color: '#e8dcc0', roughness: 0.35, metalness: 0.05 });
-    this.petals = [];
-    for (let k = 0; k < 3; k++) {
-      const p = buildPetal(k, 4.2);
-      const pivot = new THREE.Group();
-      pivot.position.copy(p.pivot);
-      const skin = new THREE.Mesh(p.geo, petalMat);
-      const teeth = new THREE.Mesh(p.teethGeo, toothMat);
-      for (const m of [skin, teeth]) {
-        m.castShadow = true;
-        m.receiveShadow = true;
-        pivot.add(m);
+    this.teeth = new THREE.InstancedMesh(toothGeo, toothMat, TOOTH_COUNT);
+    this.teeth.frustumCulled = false;
+    this.teeth.castShadow = true;
+    this.teeth.receiveShadow = true;
+    this.headGroup.add(this.teeth);
+    this.tooth = []; // { ring, cos, sin, lobe, len, lean, width }
+    TEETH.forEach(([ring, count, len, lean], r) => {
+      for (let k = 0; k < count; k++) {
+        const th = ((k + (r % 2) * 0.5) / count) * TAU;
+        const h = Math.abs(Math.sin(k * 12.9898 + r * 78.233) * 43758.5453) % 1;
+        this.tooth.push({
+          ring,
+          cos: Math.cos(th),
+          sin: Math.sin(th),
+          lobe: Math.pow(0.5 + 0.5 * Math.cos(3 * th), 1.3),
+          len: len * (0.82 + 0.36 * h),
+          lean: lean + (h - 0.5) * 0.16,
+          width: 0.085 + 0.035 * h,
+        });
       }
-      this.headGroup.add(pivot);
-      this.petals.push({ pivot, axis: p.axis });
-    }
-    // throat: dark flesh with rings of baleen-like teeth, faint spice glow deep inside
-    const throatGeo = new THREE.CylinderGeometry(R_LIP * 0.96, R_LIP * 0.35, 7, RADIAL, 6, true);
-    throatGeo.rotateX(-Math.PI / 2);
-    throatGeo.translate(0, 0, -3.5);
-    const throat = new THREE.Mesh(
-      throatGeo,
-      new THREE.MeshStandardMaterial({ color: '#2a100c', roughness: 0.6, side: THREE.BackSide, emissive: new THREE.Color('#ff5a1a'), emissiveIntensity: 0.12 }),
-    );
-    this.headGroup.add(throat);
-    const glow = new THREE.Mesh(new THREE.CircleGeometry(R_LIP * 0.38, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.75, 0.2) }));
-    glow.position.z = -6.8;
-    this.headGroup.add(glow);
-    const ringTeeth = [];
-    for (let rI = 0; rI < 4; rI++) {
-      const z = -0.4 - rI * 1.3;
-      const rr = R_LIP * (0.95 - rI * 0.12);
-      const n = 34 - rI * 4;
-      for (let i = 0; i < n; i++) {
-        const ang = (i / n) * Math.PI * 2 + rI * 0.3;
-        const t = new THREE.ConeGeometry(0.06, 0.55 - rI * 0.07, 4);
-        const inward = new THREE.Vector3(-Math.cos(ang), -Math.sin(ang), -0.5).normalize();
-        t.applyMatrix4(_m.makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(UPV, inward)));
-        t.translate(Math.cos(ang) * rr, Math.sin(ang) * rr, z);
-        ringTeeth.push(t);
-      }
-    }
-    this.headGroup.add(new THREE.Mesh(mergeGeometries(ringTeeth), toothMat));
+    });
 
     // reusable ring frames
     this.centers = Array.from({ length: RINGS }, () => new THREE.Vector3());
@@ -317,6 +375,7 @@ export class Sandworm {
     this.binormals = Array.from({ length: RINGS }, () => new THREE.Vector3());
     this.radii = new Float32Array(RINGS);
     for (let i = 0; i < RINGS; i++) this.radii[i] = radiusAt(i);
+    this.roll = new THREE.Vector3(0, 1, 0); // the head's "up", carried along the path so the skin never spins
     this.crossings = [];
   }
 
@@ -330,12 +389,12 @@ export class Sandworm {
     this.state = 'approach';
     this.target = target;
     this.time = 0;
-    this.open = 0;
     this.path = null;
     this.breached = false;
     this.dived = false;
     this.swallowed = false;
     this.speed = 10.5;
+    this.roll.set(0, 1, 0);
     const hx = target.x + Math.cos(fromAngle) * distance;
     const hz = target.z + Math.sin(fromAngle) * distance;
     this.head.set(hx, groundHeight(hx, hz) - 8, hz);
@@ -507,11 +566,7 @@ export class Sandworm {
       else v = 14;
       const before = P.s;
       this._advancePath(v * dt);
-      // mouth opens as it nears the surface and snaps shut over the top of the arc
       const s = P.s;
-      let openT = 0;
-      if (s > m.surface - 6 && s < m.arcStart + (m.arcEnd - m.arcStart) * 0.35) openT = 1;
-      this.open += (openT - this.open) * (1 - Math.exp(-dt * (openT > this.open ? 2.4 : 3.2)));
       if (!this.breached && s >= m.surface - 0.5) {
         this.breached = true;
         this.events.push({ type: 'breach', x: this.breachPoint.x, y: this.breachPoint.y, z: this.breachPoint.z });
@@ -542,7 +597,6 @@ export class Sandworm {
       this.head.z += this.dir.z * 11 * dt;
       const gy = groundHeight(this.head.x, this.head.z) - 12 - this.leaveTimer * 1.5;
       this.head.y += (gy - this.head.y) * (1 - Math.exp(-dt * 2));
-      this.open += (0 - this.open) * (1 - Math.exp(-dt * 3));
       // wait for the whole (very long) body to slide back under before vanishing
       if ((this.leaveTimer > 3 && this.visibleAmount === 0) || this.leaveTimer > 25) {
         this.active = false;
@@ -606,65 +660,198 @@ export class Sandworm {
       if (T[i].lengthSq() < 1e-10) T[i].copy(this.dir);
       T[i].normalize();
     }
-    N[0].copy(UPV).addScaledVector(T[0], -UPV.dot(T[0]));
+    // The head's frame is carried on from the last frame, not rebuilt from "up": rebuilt,
+    // it snaps round whenever the worm points straight up or down, and the whole skin
+    // (the lobes of the mouth, the plates) would jump with it.
+    N[0].copy(this.roll).addScaledVector(T[0], -this.roll.dot(T[0]));
     if (N[0].lengthSq() < 1e-6) N[0].set(1, 0, 0).addScaledVector(T[0], -T[0].x);
     N[0].normalize();
+    this.roll.copy(N[0]);
     B[0].crossVectors(T[0], N[0]).normalize();
     for (let i = 1; i < RINGS; i++) {
       N[i].copy(N[i - 1]).addScaledVector(T[i], -N[i - 1].dot(T[i])).normalize();
       B[i].crossVectors(T[i], N[i]).normalize();
     }
 
-    const pos = this.posAttr.array;
-    const nor = this.norAttr.array;
-    const R = this.radii;
-    const J = this.jitter;
-    for (let i = 0; i < RINGS; i++) {
-      const dR = (R[Math.max(0, i - 1)] - R[Math.min(RINGS - 1, i + 1)]) / (2 * SPACING);
-      for (let j = 0; j <= RADIAL; j++) {
-        const th = (j / RADIAL) * Math.PI * 2;
-        const cs = Math.cos(th);
-        const sn = Math.sin(th);
-        const rx = N[i].x * cs + B[i].x * sn;
-        const ry = N[i].y * cs + B[i].y * sn;
-        const rz = N[i].z * cs + B[i].z * sn;
-        const idx = i * (RADIAL + 1) + j;
-        const r = R[i] * J[idx];
-        pos[idx * 3] = C[i].x + rx * r;
-        pos[idx * 3 + 1] = C[i].y + ry * r;
-        pos[idx * 3 + 2] = C[i].z + rz * r;
-        let nx = rx - T[i].x * dR;
-        let ny = ry - T[i].y * dR;
-        let nz = rz - T[i].z * dR;
-        const l = Math.hypot(nx, ny, nz) || 1;
-        nor[idx * 3] = nx / l;
-        nor[idx * 3 + 1] = ny / l;
-        nor[idx * 3 + 2] = nz / l;
-      }
-    }
-    this.posAttr.needsUpdate = true;
-    this.norAttr.needsUpdate = true;
-
-    // mouth frame: x = N, y = B, z = T (forward)
-    _m.makeBasis(N[0], B[0], T[0]);
-    _m.setPosition(C[0]);
-    this.headGroup.matrix.copy(_m);
-    this.headGroup.matrixWorldNeedsUpdate = true;
-    const open = this.open;
-    for (let k = 0; k < 3; k++) {
-      const p = this.petals[k];
-      p.pivot.quaternion.setFromAxisAngle(p.axis, open * 1.05);
-    }
+    this._skin();
+    this._teeth();
 
     // where the body pierces the sand (for spray + sand disturbance)
     let prevAbove = C[0].y - groundHeight(C[0].x, C[0].z) > 0;
     this.visibleAmount = prevAbove ? 1 : 0;
-    for (let i = 4; i < RINGS; i += 4) {
+    for (let i = CROSS_STEP; i < RINGS; i += CROSS_STEP) {
       const above = C[i].y - groundHeight(C[i].x, C[i].z) > 0;
       if (above) this.visibleAmount++;
       if (above !== prevAbove) this.crossings.push({ x: C[i].x, z: C[i].z, up: above });
       prevAbove = above;
     }
+  }
+
+  // one row of the skin: ring `i` of the body, pushed `fwd` along it, at radius `rad(j)`
+  _row(k, i, fwd, rad) {
+    const pos = this.posAttr.array;
+    const c = this.centers[i];
+    const t = this.tangents[i];
+    const n = this.normals[i];
+    const b = this.binormals[i];
+    let o = k * COLS * 3;
+    for (let j = 0; j < COLS; j++) {
+      const cs = this.cos[j];
+      const sn = this.sin[j];
+      const r = rad(j);
+      const f = fwd(j);
+      pos[o++] = c.x + t.x * f + (n.x * cs + b.x * sn) * r;
+      pos[o++] = c.y + t.y * f + (n.y * cs + b.y * sn) * r;
+      pos[o++] = c.z + t.z * f + (n.z * cs + b.z * sn) * r;
+    }
+  }
+
+  _skin() {
+    const pos = this.posAttr.array;
+    const nor = this.norAttr.array;
+    const R = this.radii;
+    const J = this.jitter;
+    const lobe = this.lobe;
+    const zero = () => 0;
+
+    // the gullet: a point at the bottom of the throat
+    this._row(0, (THROAT_ROWS - 1) * THROAT_STEP + 2, zero, zero);
+    // the throat, from its depths up to the inside of the lip
+    for (let q = 0; q < THROAT_ROWS; q++) {
+      const s = q * THROAT_STEP * SPACING;
+      const reach = lobeReach(s);
+      const fun = funnel(s);
+      this._row(
+        THROAT_ROWS - q,
+        q * THROAT_STEP,
+        (j) => LOBE * lobe[j] * reach,
+        (j) => (GAPE + FLARE * lobe[j] * reach) * fun,
+      );
+    }
+    // round the lip: half a turn, from the throat's side to the hide's
+    for (let m = 1; m <= LIP_ROWS; m++) {
+      const phi = -Math.PI / 2 + (Math.PI * m) / (LIP_ROWS + 1);
+      const cp = Math.cos(phi);
+      const sp = Math.sin(phi);
+      this._row(
+        THROAT_ROWS + m,
+        0,
+        (j) => LOBE * lobe[j] + LIP * cp,
+        (j) => GAPE + FLARE * lobe[j] + LIP * (1 + sp),
+      );
+    }
+    // the snout: from the width of the body it flares out to the lip
+    const lipOuter = GAPE + 2 * LIP;
+    for (let i = 0; i < SNOUT_ROWS; i++) {
+      const s = i * SPACING;
+      const reach = lobeReach(s);
+      const wide = lipOuter + (R[i] - lipOuter) * smoothstep(0, SNOUT, s);
+      this._row(
+        OUTER0 + i,
+        i,
+        (j) => LOBE * lobe[j] * reach,
+        (j) => (wide + FLARE * lobe[j] * reach) * J[i * COLS + j],
+      );
+    }
+    // the rest of the hide
+    for (let i = SNOUT_ROWS; i < RINGS; i++) {
+      const c = this.centers[i];
+      const n = this.normals[i];
+      const b = this.binormals[i];
+      let o = (OUTER0 + i) * COLS * 3;
+      const ji = i * COLS;
+      for (let j = 0; j < COLS; j++) {
+        const cs = this.cos[j];
+        const sn = this.sin[j];
+        const r = R[i] * J[ji + j];
+        pos[o++] = c.x + (n.x * cs + b.x * sn) * r;
+        pos[o++] = c.y + (n.y * cs + b.y * sn) * r;
+        pos[o++] = c.z + (n.z * cs + b.z * sn) * r;
+      }
+    }
+    // the tip of the tail
+    const last = RINGS - 1;
+    _v.copy(this.centers[last]).addScaledVector(this.tangents[last], -0.4);
+    for (let j = 0, o = (ROWS - 1) * COLS * 3; j < COLS; j++) {
+      pos[o++] = _v.x;
+      pos[o++] = _v.y;
+      pos[o++] = _v.z;
+    }
+
+    // normals from the grid itself: across a row, and from the row before to the row after
+    for (let k = 0; k < ROWS; k++) {
+      const up = Math.min(ROWS - 1, k + 1) * COLS;
+      const dn = Math.max(0, k - 1) * COLS;
+      const row = k * COLS;
+      for (let j = 0; j < COLS; j++) {
+        const a = (up + j) * 3;
+        const b = (dn + j) * 3;
+        const cc = (row + (j === RADIAL ? 1 : j + 1)) * 3;
+        const d = (row + (j === 0 ? RADIAL - 1 : j - 1)) * 3;
+        const ux = pos[a] - pos[b];
+        const uy = pos[a + 1] - pos[b + 1];
+        const uz = pos[a + 2] - pos[b + 2];
+        const vx = pos[cc] - pos[d];
+        const vy = pos[cc + 1] - pos[d + 1];
+        const vz = pos[cc + 2] - pos[d + 2];
+        const nx = uy * vz - uz * vy;
+        const ny = uz * vx - ux * vz;
+        const nz = ux * vy - uy * vx;
+        const l = Math.sqrt(nx * nx + ny * ny + nz * nz);
+        const o = (row + j) * 3;
+        if (l > 1e-12) {
+          nor[o] = nx / l;
+          nor[o + 1] = ny / l;
+          nor[o + 2] = nz / l;
+        }
+      }
+    }
+    // the two rows that are a single point face along the body: out of the mouth, off the tail
+    const t0 = this.tangents[(THROAT_ROWS - 1) * THROAT_STEP + 2];
+    const t1 = this.tangents[last];
+    for (let j = 0; j < COLS; j++) {
+      let o = j * 3;
+      nor[o] = t0.x;
+      nor[o + 1] = t0.y;
+      nor[o + 2] = t0.z;
+      o = ((ROWS - 1) * COLS + j) * 3;
+      nor[o] = -t1.x;
+      nor[o + 1] = -t1.y;
+      nor[o + 2] = -t1.z;
+    }
+    this.posAttr.needsUpdate = true;
+    this.norAttr.needsUpdate = true;
+  }
+
+  // The teeth stand on the wall of the throat and point at its middle. None is as long as
+  // the throat is wide where it stands, so none can come through the far side.
+  _teeth() {
+    for (let k = 0; k < this.tooth.length; k++) {
+      const th = this.tooth[k];
+      const i = th.ring;
+      const s = i * SPACING;
+      const reach = lobeReach(s);
+      const r = (GAPE + FLARE * th.lobe * reach) * funnel(s);
+      const c = this.centers[i];
+      const t = this.tangents[i];
+      const n = this.normals[i];
+      const b = this.binormals[i];
+      const rx = n.x * th.cos + b.x * th.sin;
+      const ry = n.y * th.cos + b.y * th.sin;
+      const rz = n.z * th.cos + b.z * th.sin;
+      const f = LOBE * th.lobe * reach;
+      // rooted a little way into the gum, so no tooth shows its base
+      const root = r + 0.12;
+      _p.set(c.x + t.x * f + rx * root, c.y + t.y * f + ry * root, c.z + t.z * f + rz * root);
+      const cl = Math.cos(th.lean);
+      const sl = Math.sin(th.lean);
+      _v.set(-rx * cl + t.x * sl, -ry * cl + t.y * sl, -rz * cl + t.z * sl).normalize();
+      _q.setFromUnitVectors(UPV, _v);
+      _s.set(th.width, th.len, th.width);
+      _m.compose(_p, _q, _s);
+      this.teeth.setMatrixAt(k, _m);
+    }
+    this.teeth.instanceMatrix.needsUpdate = true;
   }
 
   // world position of the part of the worm most worth looking at

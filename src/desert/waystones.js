@@ -1,36 +1,41 @@
 import * as THREE from 'three';
-import { terrainHeight, groundGradient, vnoise, getSeed } from './noise.js';
-import { makeRockGeometry } from './rocks.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { terrainHeight, groundGradient } from './noise.js';
 import { PT } from './particles.js';
 import { STAMP } from './trails.js';
 import { Ornithopter, CargoPod } from './ornithopter.js';
 import { GlbModel } from './models.js';
 import { Rover, DataCore, Dish } from './props.js';
 import { categoryOf } from './resume/normalize.js';
-import { mulberry32, hashString } from './rng.js';
+import { mulberry32 } from './rng.js';
+import { TAU, ringPlan, ringSpots, padSpots } from './circle.js';
 
 const DEG = Math.PI / 180;
 
-// Waystones: basalt monoliths standing on bedrock, one per chapter of the resume.
-// They are laid out as a meandering road leading away from where the walker starts,
-// newest chapter first, so walking the road reads the resume in order.
-// Projects are different: each sits on a stone landing pad (with its 3D model) along a
-// second path that sets off the opposite way.
+// Waystones: basalt obelisks, one per chapter of the resume. They stand in a circle
+// round the place the walker starts, evenly spaced and facing the middle, newest chapter
+// first and the rest clockwise from it, so walking the circle reads the resume in order.
+// Lines inlaid in the sand tie it together: a ring where the walker starts, a spoke out
+// to every stone, and round each stone the circle you step into to read it.
+// Projects are different: each sits on a stone landing pad (with its 3D model), on a
+// wider ring outside the stones, in the gaps between them.
 
 export const WAKE_RADIUS = 3.6; // walk this close and the stone speaks
 export const SAFE_MARGIN = 2.0; // bedrock around a stone or pad: the worm can't follow you here
 
 const STONE_W = 0.95;
 const STONE_D = 0.58;
-const STONE_H = 3.3;
-const PLINTH_R = 1.45;
-const FIRST = 7.5;
-const SPACING = 11.5;
-// project landing pads: off the other way from the road
+const STONE_H = 3.6;
+const TAPER = 0.18; // how much narrower the shaft is at the top
+const FOOT = 0.45; // the shaft starts this far up, inside the plinth
+const CAP = 0.56; // height of the cap on top of the shaft
+const PLINTH_R = 1.5;
+const HUB_R = 2.4; // the ring inlaid where the walker starts
+const LINE_LIFT = 0.06; // inlaid lines ride this far above the sand
+// project landing pads: on their own ring, outside the stones
 const PAD_R = 3.6;
 const PAD_TOP = 0.42;
-const PAD_FIRST = 12;
-const PAD_SPACING = 14;
+const PAD_WAKE = PAD_R + 2.6;
 const PAD_LINE = new THREE.Color(0.14, 0.55, 0.5);
 
 // HDR colours: the inscriptions run hot enough to catch the bloom pass.
@@ -46,6 +51,8 @@ const SHAFT = {
   project: new THREE.Color(0.4, 1.0, 0.65),
   skills: new THREE.Color(1.0, 0.8, 0.42),
 };
+const HUB_COLOR = new THREE.Color('#ffe2a6');
+const BED_COLOR = new THREE.Color('#3b2a20'); // the dark channel every inlaid line runs in
 
 const BASALT_DARK = new THREE.Color('#2a201b');
 const BASALT_MID = new THREE.Color('#463328');
@@ -57,29 +64,44 @@ function smoothstep(e0, e1, x) {
   return t * t * (3 - 2 * t);
 }
 
-function monolithGeometry(rng, w, h, d) {
-  let geo = new THREE.BoxGeometry(1, 1, 1, 2, 12, 2);
-  const p = geo.getAttribute('position');
-  const v = new THREE.Vector3();
-  const ox = rng() * 100;
-  const oz = rng() * 100;
-  const slant = (rng() < 0.5 ? -1 : 1) * (0.22 + rng() * 0.3);
-  const lean = (rng() - 0.5) * 0.1;
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i);
-    const y = v.y + 0.5;
-    const taper = 1 - 0.2 * y;
-    // weathering is a function of the undisplaced position, so shared corners stay welded
-    const n = vnoise(v.x * 2.3 + y * 5.1 + ox, v.z * 2.3 + y * 3.7 + oz) - 0.5;
-    const n2 = vnoise(y * 17 + ox, (v.x + v.z) * 6.5 + oz) - 0.5;
-    const x = v.x * w * taper * (1 + n * 0.14) + lean * y * h * 0.1;
-    const z = v.z * d * taper * (1 + n2 * 0.1);
-    let yy = y * h;
-    if (y > 0.999) yy += v.x * slant;
-    p.setXYZ(i, x, yy, z);
+// A prism run up through rectangular sections with cut corners, and closed on top.
+// sections: [y, half width, half depth, how much is cut off each corner], bottom first.
+function loft(sections) {
+  const rings = sections.map(([y, hw, hd, cut]) => {
+    const c = Math.max(0, Math.min(cut, hw, hd));
+    return [
+      [hw - c, y, hd],
+      [hw, y, hd - c],
+      [hw, y, -hd + c],
+      [hw - c, y, -hd],
+      [-hw + c, y, -hd],
+      [-hw, y, -hd + c],
+      [-hw, y, hd - c],
+      [-hw + c, y, hd],
+    ];
+  });
+  const tri = [];
+  for (let k = 0; k < rings.length - 1; k++) {
+    for (let i = 0; i < 8; i++) {
+      const j = (i + 1) % 8;
+      const a = rings[k][i];
+      const b = rings[k][j];
+      const c = rings[k + 1][j];
+      const d = rings[k + 1][i];
+      tri.push(...a, ...b, ...c, ...a, ...c, ...d);
+    }
   }
-  geo = geo.toNonIndexed();
+  const top = rings[rings.length - 1];
+  const mid = [0, sections[sections.length - 1][0], 0];
+  for (let i = 0; i < 8; i++) tri.push(...top[i], ...top[(i + 1) % 8], ...mid);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(tri, 3));
   geo.computeVertexNormals();
+  return geo;
+}
+
+// Colour each face: bands of basalt, sand dusted on what faces up and banked at the foot.
+function paint(geo, footTop) {
   const pos = geo.getAttribute('position');
   const nor = geo.getAttribute('normal');
   const colors = new Float32Array(pos.count * 3);
@@ -87,12 +109,9 @@ function monolithGeometry(rng, w, h, d) {
   for (let i = 0; i < pos.count; i += 3) {
     const ny = nor.getY(i);
     const cy = (pos.getY(i) + pos.getY(i + 1) + pos.getY(i + 2)) / 3;
-    const band = Math.sin(cy * 2.6 + ox) * 0.5 + 0.5;
-    c.copy(BASALT_DARK).lerp(BASALT_MID, band).lerp(BASALT_LIGHT, Math.max(0, Math.sin(cy * 6.1 + oz)) * 0.3);
-    c.multiplyScalar(0.92 + rng() * 0.16);
+    c.copy(BASALT_DARK).lerp(BASALT_MID, 0.5 + 0.5 * Math.sin(cy * 2.6 + 0.8)).lerp(BASALT_LIGHT, Math.max(0, Math.sin(cy * 6.1)) * 0.25);
     if (ny > 0.55) c.lerp(SAND, Math.min(1, (ny - 0.55) * 3) * 0.8);
-    // wind-blown sand banked against the foot of the stone
-    c.lerp(SAND, (1 - smoothstep(0.0, 0.7, cy)) * 0.55);
+    c.lerp(SAND, (1 - smoothstep(0, footTop, cy)) * 0.55);
     for (let j = 0; j < 3; j++) {
       colors[(i + j) * 3] = c.r;
       colors[(i + j) * 3 + 1] = c.g;
@@ -101,6 +120,112 @@ function monolithGeometry(rng, w, h, d) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return geo;
+}
+
+// The stone: a tapering shaft with cut corners, a band cut in above the plinth and
+// another under the cap, and a cap that tells what kind of chapter it is: a point for
+// work, steps for study, a ridge for the toolkit.
+function obeliskGeometry(kind, h) {
+  const hw = STONE_W / 2;
+  const hd = STONE_D / 2;
+  const cut = 0.075;
+  const top = h - CAP;
+  const at = (y, inset = 0) => {
+    const k = 1 - TAPER * (y / h);
+    return [y, hw * k - inset, hd * k - inset, cut];
+  };
+  const band = (y, tall) => [at(y), at(y, 0.035), at(y + tall, 0.035), at(y + tall)];
+  const sections = [at(FOOT), ...band(FOOT + 0.16, 0.09), ...band(top - 0.16, 0.06), at(top)];
+  const k = 1 - TAPER * (top / h);
+  if (kind === 'education') {
+    sections.push([top, hw * k * 0.76, hd * k * 0.76, cut * 0.8], [top + CAP * 0.5, hw * k * 0.76, hd * k * 0.76, cut * 0.8]);
+    sections.push([top + CAP * 0.5, hw * k * 0.5, hd * k * 0.5, cut * 0.6], [h, hw * k * 0.5, hd * k * 0.5, cut * 0.6]);
+  } else if (kind === 'skills') {
+    sections.push([h, hw * k, 0.012, 0]);
+  } else {
+    sections.push([h, 0.012, 0.012, 0]);
+  }
+  return paint(loft(sections), 1.1);
+}
+
+// What every stone stands on: two eight-sided steps.
+function plinthGeometry() {
+  const lower = new THREE.CylinderGeometry(PLINTH_R - 0.08, PLINTH_R + 0.06, 0.34, 8).translate(0, 0.17, 0);
+  const upper = new THREE.CylinderGeometry(1.0, 1.06, 0.2, 8).translate(0, 0.44, 0);
+  const geo = mergeGeometries([lower, upper]).toNonIndexed();
+  lower.dispose();
+  upper.dispose();
+  geo.rotateY(Math.PI / 8); // a flat side to the front
+  geo.deleteAttribute('uv');
+  geo.computeVertexNormals();
+  return paint(geo, 0.3);
+}
+
+// The small solid that hangs over each stone: the same sign its kind has in the index.
+function gemGeometry(kind) {
+  if (kind === 'education') return new THREE.IcosahedronGeometry(0.15, 1);
+  if (kind === 'skills') return new THREE.TetrahedronGeometry(0.2);
+  return new THREE.OctahedronGeometry(0.17).scale(1, 1.35, 1);
+}
+
+// A strip lying on the sand along a line of points [x, z], lifted to follow the dunes.
+function groundRibbon(pts, width, closed) {
+  const n = pts.length;
+  const pos = new Float32Array(n * 6);
+  for (let i = 0; i < n; i++) {
+    const a = pts[closed ? (i + n - 1) % n : Math.max(0, i - 1)];
+    const b = pts[closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const l = Math.hypot(dx, dz) || 1;
+    const nx = ((-dz / l) * width) / 2;
+    const nz = ((dx / l) * width) / 2;
+    for (let side = 0; side < 2; side++) {
+      const x = pts[i][0] + (side ? nx : -nx);
+      const z = pts[i][1] + (side ? nz : -nz);
+      pos.set([x, terrainHeight(x, z) + LINE_LIFT, z], (i * 2 + side) * 3);
+    }
+  }
+  const index = [];
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const a = i * 2;
+    const c = ((i + 1) % n) * 2;
+    index.push(a, c, a + 1, a + 1, c, c + 1);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(index);
+  return geo;
+}
+
+function circlePoints(x, z, r) {
+  const n = Math.max(24, Math.round((TAU * r) / 0.3));
+  return Array.from({ length: n }, (_, i) => [x + Math.cos((i / n) * TAU) * r, z + Math.sin((i / n) * TAU) * r]);
+}
+
+function linePoints(x0, z0, x1, z1) {
+  const n = Math.max(2, Math.round(Math.hypot(x1 - x0, z1 - z0) / 0.3) + 1);
+  return Array.from({ length: n }, (_, i) => [x0 + ((x1 - x0) * i) / (n - 1), z0 + ((z1 - z0) * i) / (n - 1)]);
+}
+
+function lineMaterial(color, opacity) {
+  return new THREE.MeshBasicMaterial({ color: color.clone(), transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide });
+}
+
+// An inlaid line: a dark channel cut in the sand, and a thread of light laid along it.
+function inlaidLine(pts, width, closed, bedMat, glowMat) {
+  const g = new THREE.Group();
+  const bed = new THREE.Mesh(groundRibbon(pts, width * 2.6, closed), bedMat);
+  bed.renderOrder = 1;
+  const glow = new THREE.Mesh(groundRibbon(pts, width, closed), glowMat);
+  glow.position.y = 0.012;
+  glow.renderOrder = 2;
+  g.add(bed, glow);
+  return g;
+}
+
+function disposeLine(g) {
+  g.traverse((o) => o.geometry && o.geometry.dispose());
 }
 
 function drawSymbol(g, kind, x, y, r) {
@@ -225,10 +350,12 @@ export class Waystones {
     scene.add(this.group);
     this.stoneMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.78, metalness: 0.05 });
     this.plinthMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.92, metalness: 0 });
-    this.pebbleMat = new THREE.MeshStandardMaterial({ color: '#6a4a36', flatShading: true, roughness: 0.9 });
-    this.pebbleGeo = new THREE.DodecahedronGeometry(1, 0);
+    this.plinthGeo = plinthGeometry();
     this.padMat = new THREE.MeshStandardMaterial({ color: '#5d4b3c', flatShading: true, roughness: 0.88, metalness: 0.05 });
     this.postMat = new THREE.MeshStandardMaterial({ color: '#2f2924', roughness: 0.6, metalness: 0.5 });
+    this.hub = null; // the rings inlaid where the walker starts
+    this.bedMat = lineMaterial(BED_COLOR, 0.5);
+    this.reach = 0; // how far out the outermost ring of stones is
     this.night = 0;
     this.selectedId = null;
     this.thrum = 0; // how loud the nearest hovering craft is, 0..1
@@ -243,32 +370,42 @@ export class Waystones {
     const root = new THREE.Group();
     const scale = entry.scale || 1;
     root.scale.setScalar(scale);
-    const h = STONE_H * (index === 0 ? 1.12 : 0.92 + rng() * 0.16);
-    const body = new THREE.Mesh(monolithGeometry(rng, STONE_W, h, STONE_D), this.stoneMat);
+    // the first stone, the chapter being written now, stands a little taller than the rest
+    const h = STONE_H * (index === 0 ? 1.1 : 1);
+    const body = new THREE.Mesh(obeliskGeometry(kind, h), this.stoneMat);
     body.castShadow = true;
     body.receiveShadow = true;
-    const plinth = new THREE.Mesh(makeRockGeometry(rng, 1.75, 0.5, 1.55, 3), this.plinthMat);
+    const plinth = new THREE.Mesh(this.plinthGeo, this.plinthMat);
     plinth.castShadow = true;
     plinth.receiveShadow = true;
-    plinth.rotation.y = rng() * Math.PI * 2;
     root.add(plinth, body);
 
+    // the inscription, on both broad faces, between the two bands
     const glyphMat = new THREE.MeshBasicMaterial({
       map: glyphTexture(rng, kind),
       color: GLOW[kind].clone(),
       transparent: true,
       depthWrite: false,
     });
-    const glyphGeo = new THREE.PlaneGeometry(STONE_W * 0.38, h * 0.68);
-    const zFace = (STONE_D / 2) * (1 - 0.2 * 0.5) + 0.04;
-    const tilt = Math.atan2((STONE_D / 2) * 0.2, h);
+    const lo = FOOT + 0.4;
+    const hi = h - CAP - 0.3;
+    const mid = (lo + hi) / 2;
+    const glyphGeo = new THREE.PlaneGeometry((hi - lo) / 6, hi - lo);
+    const zFace = (STONE_D / 2) * (1 - TAPER * (mid / h)) + 0.015;
+    const tilt = Math.atan2((STONE_D / 2) * TAPER, h);
     for (const side of [1, -1]) {
       const glyph = new THREE.Mesh(glyphGeo, glyphMat);
-      glyph.position.set(0, h * 0.5, zFace * side);
+      glyph.position.set(0, mid, zFace * side);
       glyph.rotation.set(-tilt * side, side > 0 ? 0 : Math.PI, 0);
       glyph.renderOrder = 2;
       root.add(glyph);
     }
+
+    const gemMat = new THREE.MeshBasicMaterial({ color: GLOW[kind].clone() });
+    const gem = new THREE.Mesh(gemGeometry(kind), gemMat);
+    const gemY = h + 0.36;
+    gem.position.y = gemY;
+    root.add(gem);
 
     const shaftMat = new THREE.ShaderMaterial({
       uniforms: {
@@ -287,11 +424,7 @@ export class Waystones {
     shaft.renderOrder = 6;
     shaft.frustumCulled = false;
 
-    const pebbles = new THREE.InstancedMesh(this.pebbleGeo, this.pebbleMat, 12);
-    pebbles.castShadow = true;
-    pebbles.receiveShadow = true;
-
-    this.group.add(root, shaft, pebbles);
+    this.group.add(root, shaft);
     return {
       entry,
       index,
@@ -301,11 +434,15 @@ export class Waystones {
       shaft,
       shaftMat,
       glyphMat,
-      pebbles,
+      gem,
+      gemMat,
+      gemY,
+      inlay: null, // the circle round the stone and the spoke out to it, laid when it's placed
+      spokeGlow: 0,
+      ring: -1, // which ring of the circle it stands on (-1: placed by hand)
       scale,
       radius: PLINTH_R * scale, // solid: the walker can't pass inside this
       wake: WAKE_RADIUS + (scale - 1) * 1.5, // within this the stone opens its dossier
-      autoRot: (rng() - 0.5) * 0.6,
       x: 0,
       z: 0,
       y: 0,
@@ -395,6 +532,9 @@ export class Waystones {
       pulse: 0,
       moteAcc: 0,
       dustAcc: 0,
+      inlay: null, // the spoke out to the pad, laid when it's placed
+      spokeGlow: 0,
+      ring: -1,
     };
   }
 
@@ -402,114 +542,125 @@ export class Waystones {
     return this.stones.find((s) => s.entry.id === id) || null;
   }
 
-  // Lay the road out from (sx, sz), setting off along `heading` (radians, world x/z plane),
-  // and the project pads along their own path the opposite way.
-  // `blocked(x, z, margin)` reports rock; stones keep clear of it.
+  // Lay the circle out round (sx, sz). The first stone stands toward `heading` (radians,
+  // world x/z plane) and the rest follow clockwise, each facing the middle; the pads stand
+  // on a ring outside them, the first on the far side from `heading`.
+  // `blocked(x, z, margin)` reports ground that is taken (the games' sites).
   layout(sx, sz, heading, blocked) {
-    const seed = getSeed();
-    const rng = mulberry32((Math.floor(seed.x * 31 + seed.z * 17) ^ 0x9e3779b9) >>> 0);
     this.spawn = { x: sx, z: sz };
-    const placed = [];
-    // sites placed by hand go exactly where they were put; the paths flow around them
-    for (const s of this.stones) {
-      if (!s.entry.place) continue;
-      const x = sx + s.entry.place.dx;
-      const z = sz + s.entry.place.dz;
-      placed.push({ x, z });
+    const placed = []; // { x, z, keep }: offsets from the middle, and how far a pad must keep off
+    const put = (s, x, z, face) => {
+      placed.push({ x: x - sx, z: z - sz, keep: s.wake + PAD_WAKE + 0.3 });
       if (s.kind === 'project') this._placePad(s, x, z);
-      else this._place(s, x, z);
+      else this._place(s, x, z, face);
+    };
+    // sites placed by hand go exactly where they were put; the circle is made of the rest
+    for (const s of this.stones) {
+      s.ring = -1;
+      if (s.entry.place) put(s, sx + s.entry.place.dx, sz + s.entry.place.dz);
     }
-    const road = this.stones.filter((s) => s.kind !== 'project' && !s.entry.place);
+    const ring = this.stones.filter((s) => s.kind !== 'project' && !s.entry.place);
     const pads = this.stones.filter((s) => s.kind === 'project' && !s.entry.place);
-    this._path(road, sx, sz, heading, FIRST, SPACING, 3.2, 7.5, 0, placed, blocked, rng, (s, x, z) => this._place(s, x, z));
-    this._path(pads, sx, sz, heading + Math.PI, PAD_FIRST, PAD_SPACING, PAD_R + 2, 11, 3, placed, blocked, rng, (s, x, z) => this._placePad(s, x, z));
-  }
 
-  // Walk a meandering path, putting each site on the calmest open sand near its ideal spot.
-  _path(sites, sx, sz, heading, first, spacing, rockMargin, apart, flatWeight, placed, blocked, rng, place) {
+    // turn the whole circle a little either way, to stand its stones on the calmest sand
     const g = { x: 0, z: 0 };
-    let x = sx;
-    let z = sz;
-    let px = sx;
-    let pz = sz;
-    let dir = heading;
-    let bend = 0;
-    sites.forEach((s, i) => {
-      if (i > 0) {
-        bend += (rng() - 0.5) * 0.7;
-        bend *= 0.7;
-        dir += bend + (rng() - 0.5) * 0.35;
+    const plan = ringPlan(ring.length);
+    const step = plan.length ? TAU / plan[0].count : TAU;
+    let turn = 0;
+    let best = Infinity;
+    for (let k = -2; k <= 2; k++) {
+      const t = k * 0.2 * step;
+      let score = Math.abs(k) * 0.02;
+      for (const p of ringSpots(ring.length, heading, t)) {
+        groundGradient(sx + p.x, sz + p.z, g, 0.6);
+        score += g.x * g.x + g.z * g.z;
+        if (blocked && blocked(sx + p.x, sz + p.z, 3.2)) score += 100;
       }
-      const step = i === 0 ? first : spacing;
-      let best = null;
-      // when the spot is taken (a stone placed by hand, rock), look further along
-      for (let push = 0; push < 6 && (!best || best.score >= 10); push++) {
-        const tx = x + Math.cos(dir) * (step + push * apart * 0.6);
-        const tz = z + Math.sin(dir) * (step + push * apart * 0.6);
-        for (let ring = 0; ring <= 3; ring++) {
-          const n = ring === 0 ? 1 : 10;
-          for (let k = 0; k < n; k++) {
-            const a = (k / n) * Math.PI * 2 + ring * 0.4;
-            const cx = tx + Math.cos(a) * ring * 1.6;
-            const cz = tz + Math.sin(a) * ring * 1.6;
-            groundGradient(cx, cz, g);
-            let score = Math.hypot(g.x, g.z) * (1 + flatWeight) + ring * 0.06;
-            if (flatWeight) {
-              // pads are wide: also check the slope across their footprint
-              const hs = [0, 1, 2, 3].map((q) => terrainHeight(cx + Math.cos(q * 1.571) * PAD_R, cz + Math.sin(q * 1.571) * PAD_R));
-              score += (Math.max(...hs) - Math.min(...hs)) * 0.4;
-            }
-            if (blocked && blocked(cx, cz, rockMargin)) score += 10;
-            if (Math.hypot(cx - sx, cz - sz) < 6) score += 10;
-            for (const p of placed) if (Math.hypot(cx - p.x, cz - p.z) < apart) score += 10;
-            if (!best || score < best.score) best = { x: cx, z: cz, score };
-          }
-        }
+      if (score < best) {
+        best = score;
+        turn = t;
       }
-      dir = Math.atan2(best.z - pz, best.x - px);
-      x = px = best.x;
-      z = pz = best.z;
-      placed.push({ x, z });
-      place(s, x, z);
+    }
+    const spots = ringSpots(ring.length, heading, turn);
+    ring.forEach((s, i) => {
+      s.ring = spots[i].ring;
+      put(s, sx + spots[i].x, sz + spots[i].z, Math.atan2(-spots[i].x, -spots[i].z));
     });
+    this.reach = plan.length ? plan[plan.length - 1].r : 0;
+
+    // the pads: in the gaps between the stones, one ring further out; when that ring is
+    // full (or the games are in the way), the next ring out again
+    const padSites = padSpots(pads.length, ring.length, heading, turn, {
+      apart: WAKE_RADIUS + PAD_WAKE + 0.4,
+      room: 2 * PAD_WAKE + 0.6,
+      prefer: heading + Math.PI,
+      taken: placed,
+      free: blocked ? (x, z) => !blocked(sx + x, sz + z, PAD_R + 2) : null,
+    });
+    pads.forEach((s, i) => this._placePad(s, sx + padSites[i].x, sz + padSites[i].z));
+    this._hub();
   }
 
-  _place(s, x, z) {
-    // pebbles from the entry's own seed, so they stay put when the stone moves
-    const rng = mulberry32(hashString(s.entry.id));
+  // face: which way the stone looks (radians); left out, it keeps the turn it has
+  _place(s, x, z, face) {
     let minH = terrainHeight(x, z);
-    for (let k = 0; k < 10; k++) {
-      const a = (k / 10) * Math.PI * 2;
-      minH = Math.min(minH, terrainHeight(x + Math.cos(a) * 1.2, z + Math.sin(a) * 1.2));
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * TAU;
+      minH = Math.min(minH, terrainHeight(x + Math.cos(a) * PLINTH_R * s.scale, z + Math.sin(a) * PLINTH_R * s.scale));
     }
     s.x = x;
     s.z = z;
     s.y = minH;
-    // face the default camera, give or take, unless turned by hand
-    s.root.position.set(x, minH - 0.3 * s.scale, z);
-    s.root.rotation.y = s.entry.place ? s.entry.place.rot * DEG : s.autoRot;
-    s.root.children[0].position.y = 0.32;
+    // the lower step of the plinth sits in the sand at its lowest corner
+    s.root.position.set(x, minH - 0.14 * s.scale, z);
+    if (face !== undefined) s.root.rotation.y = face;
+    else if (s.entry.place) s.root.rotation.y = s.entry.place.rot * DEG;
     s.shaft.position.set(x, minH + s.h * 0.55 * s.scale, z);
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const e = new THREE.Euler();
-    const sc = new THREE.Vector3();
-    const p = new THREE.Vector3();
-    for (let i = 0; i < s.pebbles.count; i++) {
-      const a = rng() * Math.PI * 2;
-      const d = PLINTH_R + 0.1 + rng() ** 1.4 * 1.8;
-      const px = x + Math.cos(a) * d;
-      const pz = z + Math.sin(a) * d;
-      const k = 0.05 + rng() ** 2.5 * 0.26;
-      p.set(px, terrainHeight(px, pz) - k * 0.2, pz);
-      e.set(rng() * 3, rng() * 3, rng() * 3);
-      q.setFromEuler(e);
-      sc.set(k * (0.8 + rng() * 0.6), k * (0.5 + rng() * 0.4), k * (0.8 + rng() * 0.6));
-      m.compose(p, q, sc);
-      s.pebbles.setMatrixAt(i, m);
+    this._inlay(s);
+  }
+
+  // The lines in the sand that belong to a site: round a stone, the circle you step into
+  // to read it; and to every site, a spoke from the ring where the walker starts.
+  _inlay(s) {
+    if (!this.spawn) return;
+    const tint = s.kind === 'project' ? s.lineColor : SHAFT[s.kind];
+    if (!s.inlay) s.inlay = { ring: null, spoke: null, ringMat: lineMaterial(tint, 0.8), spokeMat: lineMaterial(tint, 0.1) };
+    for (const key of ['ring', 'spoke']) {
+      if (!s.inlay[key]) continue;
+      this.group.remove(s.inlay[key]);
+      disposeLine(s.inlay[key]);
+      s.inlay[key] = null;
     }
-    s.pebbles.instanceMatrix.needsUpdate = true;
-    s.pebbles.computeBoundingSphere();
+    const edge = s.kind === 'project' ? PAD_R + 0.5 : s.wake;
+    if (s.kind !== 'project') {
+      s.inlay.ring = inlaidLine(circlePoints(s.x, s.z, s.wake), 0.07, true, this.bedMat, s.inlay.ringMat);
+      this.group.add(s.inlay.ring);
+    }
+    const dx = s.x - this.spawn.x;
+    const dz = s.z - this.spawn.z;
+    const d = Math.hypot(dx, dz);
+    if (d > HUB_R + edge + 0.6) {
+      const ux = dx / d;
+      const uz = dz / d;
+      const pts = linePoints(this.spawn.x + ux * HUB_R, this.spawn.z + uz * HUB_R, s.x - ux * edge, s.z - uz * edge);
+      s.inlay.spoke = inlaidLine(pts, 0.06, false, this.bedMat, s.inlay.spokeMat);
+      this.group.add(s.inlay.spoke);
+    }
+  }
+
+  // two rings inlaid in the sand where the walker starts: the middle of the circle
+  _hub() {
+    if (this.hub) {
+      this.group.remove(this.hub);
+      disposeLine(this.hub);
+    } else {
+      this.hubMat = lineMaterial(HUB_COLOR, 0.85);
+    }
+    this.hub = new THREE.Group();
+    const { x, z } = this.spawn;
+    this.hub.add(inlaidLine(circlePoints(x, z, HUB_R), 0.08, true, this.bedMat, this.hubMat));
+    this.hub.add(inlaidLine(circlePoints(x, z, HUB_R - 0.36), 0.04, true, this.bedMat, this.hubMat));
+    this.group.add(this.hub);
   }
 
   _placePad(s, x, z) {
@@ -528,6 +679,7 @@ export class Waystones {
     s.y = base;
     s.root.position.set(x, base, z);
     s.root.rotation.y = s.entry.place ? s.entry.place.rot * DEG : 0;
+    this._inlay(s);
   }
 
   // ---- editing: move and turn sites live, find the one under the pointer ----
@@ -568,7 +720,7 @@ export class Waystones {
   // world-space point just above the stone (or the craft on its pad), for HUD labels
   anchor(s, out) {
     if (s.kind === 'project') return out.set(s.x, s.y + PAD_TOP + s.model.height * s.modelScale + 0.5, s.z);
-    return out.set(s.x, s.y + s.h * s.scale + 0.9, s.z);
+    return out.set(s.x, s.y + s.h * s.scale + 1.15, s.z);
   }
 
   // where to stand to read the stone, coming from (fx, fz)
@@ -606,6 +758,35 @@ export class Waystones {
   nearStone(x, z, margin = SAFE_MARGIN) {
     for (const s of this.stones) if (Math.hypot(x - s.x, z - s.z) < s.radius + margin) return true;
     return false;
+  }
+
+  // The circle stands on bedrock, out to well past its stones: far enough that a worm
+  // rising at the edge of it comes up clear of them.
+  get safeRadius() {
+    return this.reach ? this.reach + 13 : 0;
+  }
+
+  onCourt(x, z, margin = 0) {
+    return !!this.spawn && Math.hypot(x - this.spawn.x, z - this.spawn.z) < this.safeRadius + margin;
+  }
+
+  // ground the circle and its pads stand on: no rock crops out here
+  keepsClear(x, z, r) {
+    if (this.spawn && this.reach && Math.hypot(x - this.spawn.x, z - this.spawn.z) < this.reach + WAKE_RADIUS + 1 + r) return true;
+    for (const s of this.stones) if (Math.hypot(x - s.x, z - s.z) < s.wake + 1 + r) return true;
+    return false;
+  }
+
+  // For the map: each ring of the circle as a closed line through its stones, and a
+  // spoke from the start to every pad and to every stone placed by hand.
+  mapLines() {
+    const rings = [];
+    const spokes = [];
+    for (const s of this.stones) {
+      if (s.kind !== 'project' && s.ring >= 0) (rings[s.ring] ||= []).push({ x: s.x, z: s.z });
+      else spokes.push({ project: s.kind === 'project', points: [this.spawn, { x: s.x, z: s.z }] });
+    }
+    return { rings: rings.filter(Boolean).map((pts) => (pts.length > 2 ? [...pts, pts[0]] : pts)), spokes };
   }
 
   // The moment a stone is first reached: dust, a ring in the sand, a swirl of spice.
@@ -663,6 +844,16 @@ export class Waystones {
       s.glow += (target - s.glow) * (1 - Math.exp(-dt * 4));
       const flicker = 0.93 + 0.07 * Math.sin(t * 2.1 + s.index * 1.7) * Math.sin(t * 0.77 + s.index);
       s.glyphMat.color.copy(GLOW[s.kind]).multiplyScalar(s.glow * flicker);
+      s.gemMat.color.copy(GLOW[s.kind]).multiplyScalar(0.5 * s.glow * flicker);
+      s.gem.rotation.y = t * 0.5 + s.index * 1.3;
+      s.gem.position.y = s.gemY + Math.sin(t * 1.1 + s.index * 2.1) * 0.035;
+      // its circle on the sand is bright while the stone waits and an ember once it's
+      // read; the spoke out to it lights when it has been
+      s.spokeGlow += ((s.found ? 1 : 0) - s.spokeGlow) * (1 - Math.exp(-dt * 1.5));
+      if (s.inlay) {
+        s.inlay.ringMat.opacity = Math.min(1, (s.found ? 0.3 : 0.8) + near * 0.1 + selected * 0.2 + s.pulse * 0.5);
+        s.inlay.spokeMat.opacity = Math.min(1, 0.1 + 0.75 * s.spokeGlow + s.pulse * 0.4);
+      }
 
       // light column: a beacon until found, an ember after
       s.shaft.rotation.y = camYaw;
@@ -713,6 +904,8 @@ export class Waystones {
     const near = 1 - smoothstep(3, 14, d);
     const k = 0.75 + near * 0.35 + selected * 0.25 + s.pulse * 0.8;
     s.lineMat.color.copy(s.lineColor).multiplyScalar(k);
+    s.spokeGlow += ((s.found ? 1 : 0) - s.spokeGlow) * (1 - Math.exp(-dt * 1.5));
+    if (s.inlay) s.inlay.spokeMat.opacity = Math.min(1, 0.1 + 0.75 * s.spokeGlow + s.pulse * 0.4);
     for (let i = 0; i < s.bulbs.length; i++) {
       const b = 0.5 + 0.5 * Math.sin(t * 1.4 - i * 0.785);
       s.bulbs[i].color.copy(s.lineColor).multiplyScalar(0.45 + 0.75 * b * k);
